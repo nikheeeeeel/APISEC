@@ -1,0 +1,1 @@
+"""APISEC backend application."""
