@@ -1,0 +1,3 @@
+[submodule "engines/arjun"]
+	path = engines/arjun
+	url = https://github.com/s0md3v/Arjun

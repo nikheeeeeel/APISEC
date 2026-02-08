@@ -1,0 +1,12 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API Spec",
+    "version": "1.0.0",
+    "description": "API spec generated from scanning http://localhost:3000/health"
+  },
+  "paths": {},
+  "components": {
+    "parameters": {}
+  }
+}

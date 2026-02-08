@@ -1,0 +1,12 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API Spec",
+    "version": "1.0.0",
+    "description": "API spec generated from scanning https://postman-echo.com/get?foo=bar"
+  },
+  "paths": {},
+  "components": {
+    "parameters": {}
+  }
+}

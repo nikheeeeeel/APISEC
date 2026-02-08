@@ -1,0 +1,39 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API Spec",
+    "version": "1.0.0",
+    "description": "API spec generated from scanning http://demo.testfire.net"
+  },
+  "paths": {
+    "/discover": {
+      "get": {
+        "summary": "Discovered parameters endpoint",
+        "description": "Endpoint with parameters discovered by Arjun",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/content_query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "content_query": {
+        "name": "content",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Discovered parameter from http://demo.testfire.net"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API Spec",
+    "version": "1.0.0",
+    "description": "API spec generated from scanning https://owasp.org/www-project-juice-shop"
+  },
+  "paths": {},
+  "components": {
+    "parameters": {}
+  }
+}

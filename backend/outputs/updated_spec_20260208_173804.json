@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Test API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/test": {
+      "get": {
+        "summary": "Test endpoint",
+        "parameters": [
+          {
+            "name": "existing_param",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/discover": {
+      "get": {
+        "summary": "Discovered parameters endpoint",
+        "description": "Endpoint with parameters discovered by Arjun",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/param1_query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "param1_query": {
+        "name": "param1",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Discovered parameter from http://127.0.0.1:8001/api/test"
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API Spec",
+    "version": "1.0.0",
+    "description": "API spec generated from scanning https://jsonplaceholder.typicode.com/posts/1"
+  },
+  "paths": {
+    "/discover": {
+      "get": {
+        "summary": "Discovered parameters endpoint",
+        "description": "Endpoint with parameters discovered by Arjun",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/callback_query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "callback_query": {
+        "name": "callback",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Discovered parameter from https://jsonplaceholder.typicode.com/posts/1"
+      }
+    }
+  }
+}
