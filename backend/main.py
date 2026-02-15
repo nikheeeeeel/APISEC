@@ -9,9 +9,9 @@ import logging
 from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Optional
-from models import CanonicalParameter
-from spec_utils import load_spec, diff_spec, merge_spec
-from arjun_wrapper import run_arjun, parse_arjun_output
+from .models import CanonicalParameter
+from .spec_utils import load_spec, diff_spec, merge_spec
+from .arjun_wrapper import run_arjun, parse_arjun_output
 
 # Configure logging
 logging.basicConfig(

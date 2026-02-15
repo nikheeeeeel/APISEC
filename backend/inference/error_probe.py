@@ -4,7 +4,7 @@ import re
 from typing import Dict, List, Any
 from urllib.parse import urlencode, urlparse
 
-def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5) -> Dict[str, Dict[str, Any]]:
+def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5, content_type: str = "application/json") -> Dict[str, Dict[str, Any]]:
     """
     Infer API parameters by analyzing error responses to malformed requests.
     
@@ -12,6 +12,7 @@ def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5) -> Dic
         url: Target API endpoint
         method: HTTP method to test (default: POST)
         max_rounds: Maximum number of inference rounds
+        content_type: Content type for requests (application/json, multipart/form-data, etc.)
         
     Returns:
         Dictionary of discovered parameters with metadata
@@ -21,7 +22,7 @@ def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5) -> Dic
     round_num = 1
     
     print(f"Starting error-based parameter inference for {url}")
-    print(f"Method: {method}, Max rounds: {max_rounds}")
+    print(f"Method: {method}, Max rounds: {max_rounds}, Content-Type: {content_type}")
     
     while round_num <= max_rounds:
         print(f"\n--- Round {round_num} ---")
@@ -30,13 +31,13 @@ def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5) -> Dic
         # Test with current parameter set
         if not discovered_params:
             # First round: test with empty payload
-            response = _send_probe_request(url, method, {})
-            new_params = _extract_params_from_error(response, tested_params)
+            response = _send_probe_request(url, method, {}, content_type)
+            new_params = _extract_params_from_error(response, tested_params, content_type)
         else:
             # Subsequent rounds: test with discovered parameters
             payload = {name: "test_value" for name in discovered_params.keys()}
-            response = _send_probe_request(url, method, payload)
-            new_params = _extract_params_from_error(response, tested_params)
+            response = _send_probe_request(url, method, payload, content_type)
+            new_params = _extract_params_from_error(response, tested_params, content_type)
         
         # Add newly discovered parameters
         for param_name, param_info in new_params.items():
@@ -59,7 +60,7 @@ def infer_parameters(url: str, method: str = "POST", max_rounds: int = 5) -> Dic
     print(f"\nInference complete. Discovered {len(discovered_params)} parameters.")
     return discovered_params
 
-def _send_probe_request(url: str, method: str, payload: Dict[str, str]) -> requests.Response:
+def _send_probe_request(url: str, method: str, payload: Dict[str, str], content_type: str = "application/json") -> requests.Response:
     """
     Send a probe request to the target endpoint.
     """
@@ -70,10 +71,28 @@ def _send_probe_request(url: str, method: str, payload: Dict[str, str]) -> reque
             query_params = {**dict(q.split('=') for q in parsed_url.query.split('&') if '=' in q), **payload}
             new_query = urlencode(query_params)
             probe_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{new_query}"
-            response = requests.get(probe_url, timeout=10, headers={'Content-Type': 'application/json'})
+            response = requests.get(probe_url, timeout=10, headers={'Content-Type': content_type})
         else:
-            # For POST, send as JSON
-            response = requests.post(url, json=payload, timeout=10, headers={'Content-Type': 'application/json'})
+            # For POST, send based on content type
+            if content_type == "multipart/form-data":
+                # Handle multipart form data
+                files = {}
+                data = {}
+                
+                for key, value in payload.items():
+                    # Simple heuristic: if value looks like a file path or has file-like name, treat as file
+                    if any(file_indicator in key.lower() for file_indicator in ['file', 'upload', 'image', 'document']):
+                        # Create a small test file
+                        files[key] = (f"{key}.txt", value, "text/plain")
+                    else:
+                        data[key] = value
+                
+                response = requests.post(url, data=data, files=files, timeout=10)
+            elif content_type == "application/x-www-form-urlencoded":
+                response = requests.post(url, data=payload, timeout=10, headers={'Content-Type': content_type})
+            else:
+                # Default to JSON
+                response = requests.post(url, json=payload, timeout=10, headers={'Content-Type': content_type})
         
         return response
     except Exception as e:
@@ -85,7 +104,7 @@ def _send_probe_request(url: str, method: str, payload: Dict[str, str]) -> reque
                 self.content = self.text.encode()
         return MockResponse()
 
-def _extract_params_from_error(response: requests.Response, tested_params: set) -> Dict[str, Dict[str, Any]]:
+def _extract_params_from_error(response: requests.Response, tested_params: set, content_type: str = "application/json") -> Dict[str, Dict[str, Any]]:
     """
     Extract parameter names from error response using regex patterns.
     """
@@ -93,8 +112,101 @@ def _extract_params_from_error(response: requests.Response, tested_params: set) 
     error_text = response.text
     status_code = response.status_code
     
-    # Common error patterns for parameter inference
-    patterns = [
+    # Choose patterns based on content type
+    if content_type == "multipart/form-data":
+        patterns = _get_multipart_patterns()
+    elif content_type == "application/x-www-form-urlencoded":
+        patterns = _get_form_patterns()
+    else:
+        patterns = _get_json_patterns()
+    
+    # Common non-parameter words to filter out
+    NON_PARAM_WORDS = {
+        'error', 'message', 'status', 'code', 'type', 'detail', 'success', 'failed',
+        'field', 'required', 'missing', 'invalid', 'parameter', 'is', 'not', 'in',
+        'loc', 'input', 'form', 'data', 'payload', 'body', 'get', 'post'
+    }
+    
+    # Extract parameters using regex patterns
+    for pattern in patterns:
+        matches = re.finditer(pattern, error_text, re.IGNORECASE)
+        for match in matches:
+            param_name = match.group(1)
+            
+            # Skip if already tested or if it's a common non-parameter word
+            if (param_name.lower() in tested_params or 
+                param_name.lower() in NON_PARAM_WORDS):
+                continue
+            
+            # Calculate confidence based on pattern specificity and error type
+            confidence = _calculate_confidence(pattern, error_text, status_code)
+            
+            # Store parameter info
+            if param_name not in new_params or confidence > new_params[param_name]['confidence']:
+                new_params[param_name] = {
+                    "required": _is_required_param(error_text, param_name),
+                    "evidence": [
+                        {
+                            "error_text": error_text[:200] + "..." if len(error_text) > 200 else error_text,
+                            "status_code": status_code,
+                            "pattern": pattern,
+                            "content_type": content_type
+                        }
+                    ],
+                    "confidence": confidence,
+                    "location": _infer_location_from_content_type(content_type, param_name)
+                }
+    
+    return new_params
+
+def _get_multipart_patterns() -> List[str]:
+    """Get error patterns specific to multipart/form-data."""
+    return [
+        # File field patterns
+        r'"([^"]+)"\s*:\s*["\']?required["\']?.*file',
+        r'file\s+field\s*["\']?([^"\']+)["\']?\s+is\s+required',
+        r'no\s+file\s+uploaded\s+for\s+["\']?([^"\']+)["\']?',
+        
+        # Metadata field patterns
+        r'"([^"]+)"\s*:\s*["\']?required["\']?.*metadata',
+        r'metadata\s+field\s*["\']?([^"\']+)["\']?\s+is\s+required',
+        r'"([^"]+)"\s*:\s*["\']?missing["\']?.*upload',
+        
+        # General multipart patterns
+        r'multipart\s+field\s*["\']?([^"\']+)["\']?',
+        r'form\s+field\s*["\']?([^"\']+)["\']?\s+is\s+required',
+        r'"([^"]+)"\s*:\s*["\']?not provided["\']?.*form',
+        
+        # Wiki.js specific patterns
+        r'folderId\s+is\s+required',
+        r'folderId\s+parameter\s+missing',
+        r'upload\s+folder\s+not\s+specified',
+        
+        # Generic patterns (fallback)
+        r'"(\w+)"\s*:\s*["\']?required["\']?',
+        r'(\w+)\s+(?:parameter|field)\s+(?:is\s+)?(?:required|missing|invalid)',
+    ]
+
+def _get_form_patterns() -> List[str]:
+    """Get error patterns specific to application/x-www-form-urlencoded."""
+    return [
+        # Form field patterns
+        r'form\s+field\s*["\']?([^"\']+)["\']?\s+is\s+required',
+        r'"([^"]+)"\s*:\s*["\']?required["\']?.*form',
+        r'(\w+)\s+(?:parameter|field)\s+(?:is\s+)?(?:required|missing|invalid)',
+        
+        # URL-encoded specific
+        r'url\s+parameter\s*["\']?([^"\']+)["\']?',
+        r'form\s+parameter\s*["\']?([^"\']+)["\']?',
+        
+        # Generic patterns
+        r'"(\w+)"\s*:\s*["\']?required["\']?',
+        r'"(\w+)"\s*:\s*["\']?missing["\']?',
+    ]
+
+def _get_json_patterns() -> List[str]:
+    """Get error patterns specific to JSON."""
+    return [
         # FastAPI/Pydantic specific patterns
         r'"loc"\s*:\s*\["[^"]*",\s*"([^"]+)"\]',  # "loc": ["body","param_name"]
         r'"(\w+)"\s*:\s*["\']?required["\']?',  # "param_name": required
@@ -128,43 +240,18 @@ def _extract_params_from_error(response: requests.Response, tested_params: set) 
         r'query\s+parameter\s*["\']?(\w+)["\']?',
         r'GET\s+parameter\s*["\']?(\w+)["\']?',
     ]
-    
-    # Common non-parameter words to filter out
-    NON_PARAM_WORDS = {
-        'error', 'message', 'status', 'code', 'type', 'detail', 'success', 'failed',
-        'field', 'required', 'missing', 'invalid', 'parameter', 'is', 'not', 'in',
-        'loc', 'input', 'form', 'data', 'payload', 'body', 'get', 'post'
-    }
-    
-    # Extract parameters using regex patterns
-    for pattern in patterns:
-        matches = re.finditer(pattern, error_text, re.IGNORECASE)
-        for match in matches:
-            param_name = match.group(1)
-            
-            # Skip if already tested or if it's a common non-parameter word
-            if (param_name.lower() in tested_params or 
-                param_name.lower() in NON_PARAM_WORDS):
-                continue
-            
-            # Calculate confidence based on pattern specificity and error type
-            confidence = _calculate_confidence(pattern, error_text, status_code)
-            
-            # Store parameter info
-            if param_name not in new_params or confidence > new_params[param_name]['confidence']:
-                new_params[param_name] = {
-                    "required": _is_required_param(error_text, param_name),
-                    "evidence": [
-                        {
-                            "error_text": error_text[:200] + "..." if len(error_text) > 200 else error_text,
-                            "status_code": status_code,
-                            "pattern": pattern
-                        }
-                    ],
-                    "confidence": confidence
-                }
-    
-    return new_params
+
+def _infer_location_from_content_type(content_type: str, param_name: str) -> str:
+    """Infer parameter location based on content type and parameter name."""
+    if content_type == "multipart/form-data":
+        if any(file_indicator in param_name.lower() for file_indicator in ['file', 'upload', 'image', 'document']):
+            return "form_file"
+        else:
+            return "form_data"
+    elif content_type == "application/x-www-form-urlencoded":
+        return "form_data"
+    else:
+        return "body"  # Default for JSON
 
 def _calculate_confidence(pattern: str, error_text: str, status_code: int) -> float:
     """

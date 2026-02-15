@@ -7,6 +7,7 @@ A comprehensive parameter inference system that discovers missing parameters in 
 ### Prerequisites
 - Python 3.8+
 - FastAPI and required dependencies (see `requirements.txt`)
+- Node.js 18+
 - Modern web browser
 
 ### Installation
@@ -15,38 +16,65 @@ A comprehensive parameter inference system that discovers missing parameters in 
 git clone <repository-url>
 cd apisec
 
-# Create virtual environment
+# Create a virtual environment for the backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install backend dependencies
+pip install -r backend/requirements.txt
+
+# Install frontend and test API dependencies
+cd frontend
+npm install
+cd ../test_api
+npm install
+cd ..
 ```
 
-### Running the System
+### Running the stack for a live presentation
+1. **Start the backend**
+   ```bash
+   cd backend
+   python server.py
+   ```
+2. **Launch the demo/test API**
+   ```bash
+   cd test_api
+   npm start
+   ```
+   This Express server (http://localhost:5050) surfaces query, body, header, and path validation workloads that highlight the inference features.
+3. **Run the frontend**
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+   The Vite server defaults to `http://localhost:3000` and proxies `/api/*` to `http://localhost:8000`. `frontend/.env` already sets `VITE_API_BASE_PATH=/api`.
+4. **Drive the demo**
+   Point the inference form to the local test API endpoints (see table below) to show parameter discovery, location signals, and spec export in one flow.
 
-#### Option 1: CLI Interface
+### CLI Interface (optional)
 ```bash
-# Run parameter inference
+cd backend
 python -m backend.cli --url https://api.example.com/endpoint --method POST --time 30
 
-# Generate OpenAPI spec
 python -m backend.cli --url https://api.example.com/endpoint --method POST --time 30 > spec.json
 ```
 
-#### Option 2: Web UI (Recommended)
-```bash
-# Start the inference backend
-cd backend
-python server.py
+### Demo/test API (presentation target)
+When presenting, use the built-in Express service at `http://localhost:5050` so the frontend can demonstrate query/body/path/header discovery. The server intentionally returns structured validation errors (missing field lists, unauthorized responses) so APISec shows parameter evidence.
 
-# In another terminal, start the web UI
-cd ui
-python -m http.server 3000
+| Endpoint | Method | Demo focus | Required input |
+| --- | --- | --- | --- |
+| `/users?email=<value>` | GET | Query discovery + error message | Query `email` |
+| `/search?q=<term>` | GET | Additional query hit with synthetic results | Query `q` |
+| `/login` | POST | Body validation for `username` + `password` | JSON body with `username`, `password` |
+| `/orders` | POST | Body validation across `orderId`, `quantity`, `shippingAddress` | JSON body with all three keys |
+| `/items/:itemId` | GET | Path parameter inference with numeric ID | URL like `/items/42` |
+| `/users/:userId/status` | PATCH | Mixed path + body (`status`) | JSON body `{"status": "active"}` |
+| `/secure-data` | GET | `Authorization: Bearer testtoken` header | Header `Authorization: Bearer testtoken` |
+| `/reports` | GET | Custom header validation (`X-Report-Token`) | Header `X-Report-Token: report123` |
 
-# Open your browser and navigate to:
-http://localhost:3000
-```
+You can rapidly toggle between these targets with the UI’s URL field and time limit controls, then export the generated OpenAPI spec for the audience to inspect.
 
 ## 🧠 Architecture Overview
 

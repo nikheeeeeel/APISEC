@@ -2,7 +2,7 @@ import json
 import yaml
 from typing import List, Dict, Any
 from pathlib import Path
-from models import CanonicalParameter
+from .models import CanonicalParameter
 
 def load_spec(file_path: str) -> dict:
     """

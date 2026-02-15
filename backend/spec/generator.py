@@ -16,6 +16,11 @@ def generate_spec(inference_result: dict) -> dict:
     parameters = inference_result.get("parameters", [])
     meta = inference_result.get("meta", {})
     
+    # Extract adaptive inference metadata if available
+    adaptive_meta = meta.get("adaptive_inference", {})
+    endpoint_type = adaptive_meta.get("endpoint_classification", {}).get("endpoint_type", "json_crud")
+    content_type = adaptive_meta.get("content_type_detection", {}).get("preferred_strategy", "json")
+    
     # Extract path from URL
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
@@ -32,7 +37,10 @@ def generate_spec(inference_result: dict) -> dict:
                 "total_parameters": meta.get("total_parameters", 0),
                 "partial_failures": meta.get("partial_failures", 0),
                 "execution_time_ms": meta.get("execution_time_ms", 0),
-                "confidence_threshold": 0.5
+                "confidence_threshold": 0.5,
+                "endpoint_type": endpoint_type,
+                "content_type": content_type,
+                "adaptive_inference": adaptive_meta
             }
         },
         "servers": [
@@ -44,11 +52,13 @@ def generate_spec(inference_result: dict) -> dict:
         "paths": {}
     }
     
-    # Group parameters by location
+    # Group parameters by location and type
     query_params = []
     body_params = []
     path_params = []
     header_params = []
+    file_params = []
+    form_data_params = []
     unknown_params = []
     
     for param in parameters:
@@ -93,6 +103,10 @@ def generate_spec(inference_result: dict) -> dict:
         elif param_location == "header":
             param_schema["in"] = "header"
             header_params.append(param_schema)
+        elif param_location == "form_file":
+            file_params.append(param_schema)
+        elif param_location == "form_data":
+            form_data_params.append(param_schema)
         else:
             param_schema["x-location"] = "unknown"
             unknown_params.append(param_schema)
@@ -133,8 +147,12 @@ def generate_spec(inference_result: dict) -> dict:
     # Add parameters to path item
     all_params = query_params + path_params + header_params
     
-    # Handle body parameters separately
-    if body_params:
+    # Handle different content types based on endpoint classification
+    if endpoint_type == "upload" and (file_params or form_data_params):
+        # Multipart form data for upload endpoints
+        path_item[method]["requestBody"] = generate_multipart_schema(file_params, form_data_params)
+    elif body_params:
+        # Regular JSON body parameters
         if len(body_params) == 1:
             # Single body parameter
             path_item[method]["requestBody"] = {
@@ -180,6 +198,99 @@ def generate_spec(inference_result: dict) -> dict:
     spec["paths"][path] = path_item
     
     return spec
+
+def generate_multipart_schema(file_params: List[Dict], metadata_params: List[Dict]) -> Dict[str, Any]:
+    """
+    Generate OpenAPI schema for multipart/form-data requests.
+    
+    Args:
+        file_params: List of file parameters
+        metadata_params: List of metadata parameters
+        
+    Returns:
+        OpenAPI requestBody schema for multipart
+    """
+    print(f"📋 Generating multipart schema for {len(file_params)} files and {len(metadata_params)} metadata fields")
+    
+    # Build multipart schema
+    multipart_schema = {
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }
+    }
+    
+    properties = multipart_schema["content"]["multipart/form-data"]["schema"]["properties"]
+    required = multipart_schema["content"]["multipart/form-data"]["schema"]["required"]
+    
+    # Add file parameters
+    for param in file_params:
+        param_name = param["name"]
+        properties[param_name] = {
+            "type": "string",
+            "format": "binary",
+            "x-confidence": param.get("confidence", 0.0),
+            "x-evidence-count": len(param.get("evidence", []))
+        }
+        
+        # Add file type information if available
+        if param.get("accepted_types"):
+            properties[param_name]["x-accepted-types"] = param["accepted_types"]
+        
+        if param.get("required", False):
+            required.append(param_name)
+    
+    # Add metadata parameters
+    for param in metadata_params:
+        param_name = param["name"]
+        properties[param_name] = _build_property_schema(param)
+        
+        if param.get("required", False):
+            required.append(param_name)
+    
+    return multipart_schema
+
+def infer_nested_structure(parameters: List[Dict]) -> Dict[str, Any]:
+    """
+    Infer nested object structures from flat parameter lists.
+    
+    Args:
+        parameters: List of parameter dictionaries
+        
+    Returns:
+        Nested structure dictionary
+    """
+    print("🔍 Inferring nested object structure...")
+    
+    nested_structure = {}
+    
+    # Look for patterns that suggest nesting
+    for param in parameters:
+        param_name = param["name"]
+        
+        # Check for dot notation (e.g., "user.name", "address.city")
+        if "." in param_name:
+            parts = param_name.split(".")
+            current = nested_structure
+            
+            # Navigate/create nested structure
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {"type": "object", "properties": {}}
+                current = current[part]["properties"]
+            
+            # Add the final property
+            current[parts[-1]] = _build_property_schema(param)
+        else:
+            # Add to root level
+            nested_structure[param_name] = _build_property_schema(param)
+    
+    return nested_structure
 
 def _build_property_schema(param: dict) -> dict:
     """Build OpenAPI property schema from parameter info."""

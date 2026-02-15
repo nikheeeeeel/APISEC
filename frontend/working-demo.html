@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APISec - Enhanced Parameter Discovery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .card {
+            background: rgba(45, 55, 72, 0.1);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: rgba(30, 41, 59, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 0.9rem;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+        
+        .parameter-card {
+            background: rgba(30, 41, 59, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .confidence-high { background: #10b981; }
+        .confidence-medium { background: #f59e0b; }
+        .confidence-low { background: #ef4444; }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #ffffff;
+            border-radius: 50%;
+            border-top: 4px solid #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden { display: none; }
+        .text-center { text-align: center; }
+        .mb-1 { margin-bottom: 0.25rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .text-sm { font-size: 0.875rem; }
+        .flex { display: flex; }
+        .gap-1 { gap: 0.25rem; }
+        .justify-between { justify-content: space-between; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">
+                🚀 APISec
+            </h1>
+            <p style="font-size: 1.1rem; opacity: 0.8;">
+                Advanced API Parameter Discovery with Enhanced Architecture
+            </p>
+        </div>
+
+        <!-- Main Form -->
+        <div class="card">
+            <h2 style="color: #ffffff; margin-bottom: 1.5rem;">🔍 Enhanced Parameter Inference</h2>
+            
+            <form id="inferenceForm">
+                <div class="form-group">
+                    <label for="apiUrl" style="display: block; color: #ffffff; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 500;">
+                        Target URL
+                    </label>
+                    <input 
+                        type="url" 
+                        id="apiUrl" 
+                        name="url"
+                        placeholder="https://api.example.com/endpoint"
+                        class="form-input"
+                        required
+                    />
+                    <div id="urlError" class="hidden text-red-400 text-sm mt-1"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="httpMethod" style="display: block; color: #ffffff; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 500;">
+                        HTTP Method
+                    </label>
+                    <select id="httpMethod" name="method" class="form-input">
+                        <option value="GET">GET</option>
+                        <option value="POST" selected>POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="timeLimit" style="display: block; color: #ffffff; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 500;">
+                        Time Limit (seconds)
+                    </label>
+                    <input 
+                        type="number" 
+                        id="timeLimit" 
+                        name="time" 
+                        min="1" 
+                        max="120" 
+                        value="30"
+                        class="form-input"
+                        required
+                    />
+                </div>
+
+                <div id="errorSection" class="hidden card">
+                    <h3 style="color: #ffffff; margin-bottom: 1rem;">❌ Error</h3>
+                    <p id="errorMessage" class="text-red-400"></p>
+                </div>
+
+                <button type="submit" id="submitBtn" class="btn">
+                    Run Inference
+                </button>
+            </form>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden loading card">
+            <div class="spinner"></div>
+            <p style="color: #ffffff; margin-top: 1rem;">Running adaptive inference...</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="hidden card">
+            <h2 style="color: #ffffff; margin-bottom: 1rem;">🎯 Inference Results</h2>
+            
+            <div id="resultsSummary" class="mb-2">
+                <h3 style="color: #ffffff; margin-bottom: 0.5rem;">Discovered <span id="paramCount">0</span> parameters</h3>
+                <p style="color: #e2e8f0; font-size: 0.9rem;">Execution time: <span id="executionTime">0</span>ms</p>
+            </div>
+
+            <div id="parameterDetails" class="mb-2">
+                <h3 style="color: #ffffff; margin-bottom: 1rem;">Parameter Analysis</h3>
+                <div id="parameterList" class="results-grid">
+                    <!-- Parameters will be dynamically inserted here -->
+                </div>
+            </div>
+
+            <div id="downloadSection" class="flex justify-between">
+                <button onclick="downloadResults()" class="btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                    📥 Download Results
+                </button>
+                <button onclick="downloadSpec()" class="btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                    📋 Download OpenAPI Spec
+                </button>
+            </div>
+        </div>
+
+        <!-- New Inference Button -->
+        <div class="text-center mt-8">
+            <button onclick="newInference()" class="btn" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
+                🔄 New Inference
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let isLoading = false;
+        let results = null;
+
+        // Form validation
+        function isValidUrl(urlString) {
+            try {
+                const url = new URL(urlString);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch {
+                return false;
+            }
+        }
+
+        function isFormValid() {
+            const url = document.getElementById('apiUrl').value.trim();
+            const timeLimit = document.getElementById('timeLimit').value;
+            return url && isValidUrl(url) && timeLimit >= 1;
+        }
+
+        function showError(message) {
+            const errorSection = document.getElementById('errorSection');
+            const errorMessage = document.getElementById('errorMessage');
+            errorSection.classList.remove('hidden');
+            errorMessage.textContent = message;
+        }
+
+        function showLoading() {
+            isLoading = true;
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').textContent = 'Running Inference...';
+        }
+
+        function hideLoading() {
+            isLoading = false;
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Run Inference';
+        }
+
+        function showResults(data) {
+            results = data;
+            hideLoading();
+            
+            const resultsSection = document.getElementById('resultsSection');
+            const paramCount = document.getElementById('paramCount');
+            const executionTime = document.getElementById('executionTime');
+            const parameterList = document.getElementById('parameterList');
+            
+            resultsSection.classList.remove('hidden');
+            paramCount.textContent = data.parameters?.length || 0;
+            executionTime.textContent = data.meta?.execution_time_ms || 0;
+            
+            // Clear existing parameters
+            parameterList.innerHTML = '';
+            
+            // Add parameters
+            if (data.parameters && data.parameters.length > 0) {
+                data.parameters.forEach((param, index) => {
+                    const confidenceClass = param.confidence >= 0.8 ? 'confidence-high' : 
+                                           param.confidence >= 0.5 ? 'confidence-medium' : 'confidence-low';
+                    
+                    const paramCard = document.createElement('div');
+                    paramCard.className = 'parameter-card';
+                    paramCard.innerHTML = `
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong style="color: #ffffff; font-size: 1.1rem;">${param.name}</strong>
+                            <div style="font-size: 0.8rem; color: #e2e8f0;">
+                                ${param.location} • ${param.type} • ${param.required ? 'Required' : 'Optional'} • ${Math.round(param.confidence * 100)}%
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Add evidence if available
+                    if (param.evidence && param.evidence.length > 0) {
+                        const evidenceDiv = document.createElement('div');
+                        evidenceDiv.style.marginTop = '0.5rem';
+                        evidenceDiv.style.fontSize = '0.8rem';
+                        evidenceDiv.style.color = '#666';
+                        evidenceDiv.innerHTML = '<strong>Evidence:</strong>';
+                        
+                        param.evidence.slice(0, 2).forEach(evidence => {
+                            const evidenceItem = document.createElement('div');
+                            evidenceItem.style.marginBottom = '0.25rem';
+                            evidenceItem.style.padding = '0.5rem';
+                            evidenceItem.style.backgroundColor = 'rgba(15, 23, 42, 0.1)';
+                            evidenceItem.style.borderRadius = '4px';
+                            evidenceItem.style.fontSize = '0.7rem';
+                            evidenceItem.innerHTML = `
+                                <strong>Status ${evidence.status_code}:</strong> ${evidence.error_text?.substring(0, 100)}${evidence.error_text && evidence.error_text.length > 100 ? '...' : ''}
+                            `;
+                            evidenceDiv.appendChild(evidenceItem);
+                        });
+                        
+                        if (param.evidence.length > 2) {
+                            const moreText = document.createElement('div');
+                            moreText.style.fontSize = '0.8rem';
+                            moreText.style.color = '#666';
+                            moreText.textContent = `... and ${param.evidence.length - 2} more evidence items`;
+                            evidenceDiv.appendChild(moreText);
+                        }
+                        
+                        paramCard.appendChild(evidenceDiv);
+                    }
+                    
+                    parameterList.appendChild(paramCard);
+                });
+            }
+        }
+
+        function downloadResults() {
+            if (!results) return;
+            
+            const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'inference-results.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function downloadSpec() {
+            if (!results) return;
+            
+            const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'openapi-spec.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function newInference() {
+            results = null;
+            document.getElementById('resultsSection').classList.add('hidden');
+            document.getElementById('errorSection').classList.add('hidden');
+            document.getElementById('inferenceForm').reset();
+        }
+
+        // Form submission
+        document.getElementById('inferenceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!isFormValid()) {
+                showError('Please enter a valid URL with http:// or https://');
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('http://localhost:8000/infer', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        url: document.getElementById('apiUrl').value.trim(),
+                        method: document.getElementById('httpMethod').value,
+                        time: parseInt(document.getElementById('timeLimit').value),
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Inference failed: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                showResults(result);
+                
+            } catch (error) {
+                hideLoading();
+                showError(error instanceof Error ? error.message : 'Unknown error occurred');
+            }
+        });
+
+        // URL validation
+        document.getElementById('apiUrl').addEventListener('input', (e) => {
+            const url = e.target.value;
+            const urlError = document.getElementById('urlError');
+            
+            if (url && !isValidUrl(url)) {
+                urlError.classList.remove('hidden');
+                urlError.textContent = 'Please enter a valid URL with http:// or https://';
+            } else {
+                urlError.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -31,6 +31,9 @@ frontend/yarn-error.log*
 *.swo
 *~
 
+# Test API
+test_api/node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

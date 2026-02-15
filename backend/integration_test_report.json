@@ -1,0 +1,20 @@
+{
+  "validation_summary": {
+    "overall_status": "FAIL",
+    "total_tests": 9,
+    "passed": 1,
+    "failed": 7,
+    "warned": 0,
+    "success_rate": 0.1111111111111111,
+    "total_duration_ms": 89.5538330078125,
+    "avg_test_duration_ms": 9.905497233072916,
+    "max_test_duration_ms": 81.56037330627441
+  },
+  "category_results": {
+    "Architectural Integrity": {
+      "status": "PASS",
+      "passed": 1,
+      "failed": 2,
+      "warned": 0,
+      "tests": [
+        

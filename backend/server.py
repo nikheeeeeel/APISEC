@@ -1,11 +1,20 @@
+if __name__ == "__main__" and __package__ is None:
+    import sys
+    from pathlib import Path
+
+    backend_root = Path(__file__).resolve().parent
+    sys.path.insert(0, str(backend_root.parent))
+    __package__ = backend_root.name
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 import uvicorn
 
-from app import run_inference
-from spec.generator import generate_spec
+# Import v2 architecture
+from .models import DiscoveryRequest, AuthConfig
+from .orchestrator.v2_orchestrator import create_v2_orchestrator
 
 app = FastAPI(title="APISec Inference Service")
 
@@ -19,9 +28,14 @@ app.add_middleware(
 )
 
 class InferenceRequest(BaseModel):
+    """Legacy inference request model for backward compatibility."""
     url: str = Field(..., description="Target API endpoint")
     method: str = Field(default="POST", description="HTTP method")
     time: int = Field(default=30, description="Maximum execution time in seconds")
+    auth: Optional[AuthConfig] = Field(default=None, description="Authentication configuration")
+    headers: dict[str, str] = Field(default_factory=dict, description="Custom headers")
+    seed_body: Optional[dict] = Field(default=None, description="Seed request body")
+    content_type_override: Optional[str] = Field(default=None, description="Content type override")
 
 class HealthResponse(BaseModel):
     status: str
@@ -34,31 +48,34 @@ async def health_check():
 
 @app.post("/infer", response_model=dict)
 async def inference_endpoint(request: InferenceRequest):
-    """Main inference endpoint"""
+    """Enhanced parameter inference endpoint with v2 architecture."""
     try:
-        # Validate URL format
-        if not request.url.startswith(('http://', 'https://')):
+        # Create v2 discovery request
+        discovery_request = DiscoveryRequest(
+            url=request.url,
+            method=request.method,
+            timeout_seconds=request.time,
+            auth=request.auth,
+            headers=request.headers,
+            seed_body=request.seed_body,
+            content_type_override=request.content_type_override
+        )
+        
+        # Validate request
+        if not discovery_request.url.startswith(('http://', 'https://')):
             raise HTTPException(
                 status_code=400,
                 detail={"error": "URL must start with http:// or https://"}
             )
         
-        # Validate time
-        if request.time <= 0:
+        if discovery_request.timeout_seconds <= 0:
             raise HTTPException(
                 status_code=400,
                 detail={"error": "Time must be positive"}
             )
         
-        # Validate method
-        if request.method.upper() not in ["GET", "POST"]:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": "Method must be GET or POST"}
-            )
-        
-        # Run inference
-        result = run_inference(request.url, request.method, request.time)
+        orchestrator = create_v2_orchestrator(enable_v2=True, fallback_to_v1_on_error=False)
+        result = await orchestrator.discover_parameters(discovery_request)
         
         return result
         
@@ -75,37 +92,44 @@ async def inference_endpoint(request: InferenceRequest):
                 "total_parameters": 0,
                 "partial_failures": 1,
                 "execution_time_ms": 0,
-                "error": str(e)
+                "error": str(e),
+                "discovery_version": "v2"
             }
         }
 
 @app.post("/spec", response_model=dict)
 async def spec_endpoint(request: InferenceRequest):
-    """Generate OpenAPI spec from inference results"""
+    """Generate OpenAPI spec from v2 inference results."""
     try:
+        # Create v2 discovery request
+        discovery_request = DiscoveryRequest(
+            url=request.url,
+            method=request.method,
+            timeout_seconds=request.time,
+            auth=request.auth,
+            headers=request.headers,
+            seed_body=request.seed_body,
+            content_type_override=request.content_type_override
+        )
+        
         # Validate request (same as /infer)
-        if not request.url.startswith(('http://', 'https://')):
+        if not discovery_request.url.startswith(('http://', 'https://')):
             raise HTTPException(
                 status_code=400,
                 detail={"error": "URL must start with http:// or https://"}
             )
         
-        if request.time <= 0:
+        if discovery_request.timeout_seconds <= 0:
             raise HTTPException(
                 status_code=400,
                 detail={"error": "Time must be positive"}
             )
         
-        if request.method.upper() not in ["GET", "POST"]:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": "Method must be GET or POST"}
-            )
+        orchestrator = create_v2_orchestrator(enable_v2=True, fallback_to_v1_on_error=False)
+        inference_result = await orchestrator.discover_parameters(discovery_request)
         
-        # Run inference first
-        inference_result = run_inference(request.url, request.method, request.time)
-        
-        # Generate OpenAPI spec
+        # Generate spec from v2 results
+        from spec.generator import generate_spec
         spec = generate_spec(inference_result)
         
         return spec
@@ -122,7 +146,8 @@ async def spec_endpoint(request: InferenceRequest):
                 "description": f"Failed to generate spec: {str(e)}"
             },
             "paths": {},
-            "error": str(e)
+            "error": str(e),
+            "discovery_version": "v2"
         }
 
 if __name__ == "__main__":

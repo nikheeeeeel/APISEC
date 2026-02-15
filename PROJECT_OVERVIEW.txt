@@ -1,0 +1,67 @@
+1. System Architecture
+
+- Frontend (React/Vite): The UI lives under `frontend/` and is a Vite-powered React app. It renders the discovery form, advanced options, and the results table, and it targets `/api/*` so Vite can proxy all requests to the backend while the browser stays on port 3000.
+- API Backend (FastAPI): `backend/server.py` exposes `/health`, `/infer`, and `/spec`. Each handler converts incoming JSON into a `DiscoveryRequest`, calls the v2 orchestrator, and returns structured results or a generated OpenAPI spec. CORS is wide-open to keep local presentation setups easy.
+- Orchestrator & Probes: The orchestrator (`backend/orchestrator/v2_orchestrator.py`) sequences classification, transport probing, error-based discovery, type probing, location probing, and confidence scoring. Modules under `backend/inference/*`, `backend/probes/*`, and `backend/classification/*` implement those stages and expose the evidence returned to the UI.
+- Demo API: `test_api/server.js` runs an Express mock API at `http://localhost:5050`. It returns consistent 422 validation errors and header-based failures across query, body, path, and header endpoints so demonstrations always trigger parameter extraction.
+
+2. Is a database used?
+
+No, the current system operates entirely in memory: every inference run probes the target directly, collects evidence, and returns the response without persisting anything. A database becomes necessary when you want to:
+  * Store historical discoveries, exported specs, or saved configurations.
+  * Correlate inference runs with users, projects, or API URLs.
+  * Cache baseline fingerprints for drift detection or regression alerts.
+
+If needed, a relational store (Postgres, SQLite) or document store (MongoDB) could hold tables/collections such as `discovery_runs`, `parameters`, `evidence`, and `exported_specs` with fields like `run_id`, `url`, `method`, `status`, `meta`, `created_at`, and `payload_json`. The orchestrator would write to the DB when a run completes or when the frontend saves an exported spec.
+
+3. Technology Stack
+
+- Backend: Python 3.8+ with FastAPI, Pydantic, Uvicorn, and requests. Custom inference logic and orchestration live in `backend/inference`, `backend/probes`, `backend/classification`, and `backend/orchestrator`.
+- Frontend: React 18 + TypeScript running on Vite, styled with Tailwind CSS. The new `src/lib/api.ts` helper centralizes API-path building so the UI never hard-codes `localhost:8000`.
+- Demo API: Node.js 18+ with Express 4.x and body-parser. It is intentionally deterministic so probes always hit validation errors.
+
+4. What happens after someone enters an API URI?
+
+- The UI builds a `V2Request` payload from the form (URL, method, timeout, optional auth, headers, seed body, content-type override) and POSTs it to `/api/infer`.
+- FastAPI translates that payload into a `DiscoveryRequest` and calls `create_v2_orchestrator(enable_v2=True)`.
+- The orchestrator:
+  1. Classifies the endpoint via URL/method heuristics and, if possible, an initial request.
+  2. Selects a probing strategy (usually JSON error probing) and runs the error probe to extract parameter names from structured validation errors. Error probes send intentionally malformed requests: GET endpoints receive empty query strings or missing parameters, while POST/PUT/PATCH endpoints get empty JSON bodies or payloads containing only the already-discovered fields. Each request leaves headers/body blank except for the two control fields described above, so the target responds with validation errors that mention whichever field is missing. The probe parses `loc`, `field`, `parameter`, or human-readable text to pull parameter names and their location (query/body/path/header).
+
+     Example malformed requests:
+     * `GET http://localhost:5050/users` with no `email` query → backend receives `urlencode({})` and the test API returns `{"error":"ValidationError","details":[{"field":"email","message":"Missing required query field: email","loc":["query","email"]}]}`
+     * `POST http://localhost:5050/orders` with body `{}` → backend gets `{}` JSON, and the API responds with `{"error":"ValidationError","details":[{"field":"orderId","message":"Missing required body field: orderId","loc":["body","orderId"]}, …]}` allowing the probe to capture `orderId`, `quantity`, and `shippingAddress`.
+  3. Uses the type probe to send `"test"`, `1`, `true`, `null`, `{}` values and measures acceptance to determine type/nullable status for each parameter.
+  4. Runs the location probe (query/body/path/header heuristics) to tag where each parameter lives.
+  5. Aggregates evidence into confidence scores and packages everything into a JSON response.
+- The `/infer` endpoint sends that JSON back to the React UI, which displays discovery statistics, per-parameter cards, and a results table. Clicking “Generate OpenAPI Spec” calls `/spec`, which runs the same orchestrator result through `backend/spec/generator.py` to build an OpenAPI 3.0 document.
+
+5. How to use the other UI input fields
+
+- **HTTP Method:** Matches the target API’s method (GET, POST, etc.), guiding how probes are constructed.
+- **Time Limit:** Sets the overall orchestrator timeout. Higher values give longer inference for complex APIs.
+- **Enable v2 Discovery:** Toggles the enhanced pipeline (differential/location mapping) but is usually left on for presentations.
+- **Authentication Type:** Select `Bearer` or `API Key`, then enter the token/key and header/authorization names so the backend can attach credentials to each probe.
+- **Custom Headers:** Paste JSON (e.g., `{"X-Trace-ID":"demo"}`) to send extra headers with every request. The UI validates the JSON before submission.
+- **Seed Body:** Provide a JSON template that the backend merges into its probes, helpful when an API expects certain nested data structures.
+- **Content-Type Override:** Force a non-default content type (for example `application/x-www-form-urlencoded`) when the target API rejects JSON.
+
+6. Simple explanation
+
+7. Backend module breakdown
+
+- `backend/server.py`: FastAPI entrypoint. Validates client payloads, builds `DiscoveryRequest`, runs the orchestrator, and returns inference/spec responses. Enables CORS and exposes `/health`, `/infer`, `/spec`.
+- `backend/models/*`: Pydantic models that define `DiscoveryRequest`, `AuthConfig`, parameter/evidence shapes, and helpers like `create_legacy_request`. Central contract between frontend payloads and backend logic.
+- `backend/orchestrator/*`: The v2 orchestrator (`v2_orchestrator.py`) coordinates classification, probes, fingerprinting, confidence scoring, and error handling. It exposes `discover_parameters()` and `_capture_baseline_fingerprint()`, plus fallback to legacy flows. `orchestrator.py` and `discovery_orchestrator.py` house shared helpers and legacy flows.
+- `backend/inference/*`: High-level inference pipeline logic. `error_probe.py` extracts parameters from validation errors, `type_probe.py` tests sample values, `location_probe.py` tags query/body/path/header, and supporting files manage scoring, evidence aggregation, and orchestrated sequencing.
+- `backend/probes/*`: Lower-level probe implementations (binary_probe, etc.) and transport helpers used by inference modules when sending HTTP requests.
+- `backend/transport/*`: HTTP clients with auth/context helpers (`client.py`, `http_client.py`, `__init__.py`). They send actual requests for probes, applying credentials, custom headers, and timeouts.
+- `backend/classification/*`: Endpoint classifier and heuristics that inspect URLs, methods, and response text to recommend a strategy (json_crud, upload, auth_protected, nested). It feeds scores into the orchestrator to pick probe combinations.
+- `backend/fingerprint`: Captures baseline fingerprints and compares them for drift; used by orchestrator to detect changes across runs.
+- `backend/scoring`: Confidence scoring utilities that merge evidence into final confidence values.
+- `backend/spec`: OpenAPI generation helpers (`generator.py`, `spec_utils.py`) that translate inference output into specs and supporting metadata.
+- `backend/validation`: Mock scenarios and interfaces used for tests and to ensure probes respect safety constraints (timeouts, cycle limits, etc.).
+- `backend/cli.py` / `backend/app.py`: Legacy CLI entrypoints that still exist for direct script-driven inference or spec generation without the FastAPI server.
+- `backend/tests`: Automated tests that exercise the orchestrator, classifier, and the controlled `test_api` server to ensure consistency.
+
+APISec is an automated API discovery demo. The frontend lets you point to any API (or the built-in demo API) and configure how probes run. The backend runs a controller that sends malformed requests, watches validation and error responses, and infers which parameters exist, where they belong, and what type they are. Results return instantly so you can show them during a presentation, download inference spreadsheets, or export a generated OpenAPI spec. The test API provides predictable errors so the UI always has something interesting to show, but you can point APISec at real endpoints once you supply the right auth and headers.

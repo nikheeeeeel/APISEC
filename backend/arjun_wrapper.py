@@ -1,7 +1,7 @@
 import subprocess
 import json
 from typing import List
-from models import CanonicalParameter
+from .models import CanonicalParameter
 
 def run_arjun(url: str, output_file: str) -> dict:
     """
