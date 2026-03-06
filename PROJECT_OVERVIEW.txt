@@ -5,6 +5,45 @@
 - Orchestrator & Probes: The orchestrator (`backend/orchestrator/v2_orchestrator.py`) sequences classification, transport probing, error-based discovery, type probing, location probing, and confidence scoring. Modules under `backend/inference/*`, `backend/probes/*`, and `backend/classification/*` implement those stages and expose the evidence returned to the UI.
 - Demo API: `test_api/server.js` runs an Express mock API at `http://localhost:5050`. It returns consistent 422 validation errors and header-based failures across query, body, path, and header endpoints so demonstrations always trigger parameter extraction.
 
+    Architecture diagram:
+    ```
+    +-----------+          +-------------+         +---------------------------+
+    |  Browser  | --fetch->|  Vite dev   | --/api/->|  FastAPI backend (UVicorn)|
+    | (React UI)|          |  server     | proxying  |  + inference orchestrator  |
+    +-----------+          +-------------+         |  + classification, probes  |
+                                                      |  + spec generator          |
+                                                      +----------+----------------+
+                                                                 |
+                                                     +----------------------+
+                                                     |  Test API (Express)  |
+                                                     |  - /users, /orders,  |
+                                                     |    /secure-data, ... |
+                                                     +----------------------+
+    ```
+
+    Data flow diagram:
+    ```
+    [User enters URL] --> [Form collects method/time/auth/headers]
+                       --> [Form submit -> fetch /api/infer]
+    [Vite proxy] ------> [FastAPI server]/classify + orchestrate
+    [Orchestrator] ----> [error/type/location probes hit test API]
+    [Test API] --------> [Validation errors]
+    [Probes] ----------> [Aggregate evidence -> response]
+    [FastAPI] ---------> [JSON sent back]
+    [Frontend] --------> [Render parameters/results]
+    ```
+
+    Use case diagram:
+    ```
+    (Presenter) -> [Configure target URL/method/time]
+    (Presenter) -> [Enable v2 options / add auth/custom headers]
+    (System) -> [Call /api/infer -> orchestrator -> test API]
+    (System) -> [Parse errors/types/location -> return results]
+    (Presenter) -> [View discovery summary, download spec]
+    (Presenter) -> [Swap target for demo endpoints to showcase query/body/path/header]
+    (Project Stakeholder) -> [Use exported spec to document API]
+    ```
+
 2. Is a database used?
 
 No, the current system operates entirely in memory: every inference run probes the target directly, collects evidence, and returns the response without persisting anything. A database becomes necessary when you want to:
@@ -13,6 +52,43 @@ No, the current system operates entirely in memory: every inference run probes t
   * Cache baseline fingerprints for drift detection or regression alerts.
 
 If needed, a relational store (Postgres, SQLite) or document store (MongoDB) could hold tables/collections such as `discovery_runs`, `parameters`, `evidence`, and `exported_specs` with fields like `run_id`, `url`, `method`, `status`, `meta`, `created_at`, and `payload_json`. The orchestrator would write to the DB when a run completes or when the frontend saves an exported spec.
+
+    Example database design diagram:
+    ```
+    +------------------+      +--------------------+
+    | discovery_runs   |<-----| exported_specs     |
+    |------------------|      |--------------------|
+    | run_id (PK)      |      | spec_id (PK)       |
+    | url              |      | run_id (FK)        |
+    | method           |      | spec_json          |
+    | status           |      | created_at         |
+    | meta_json        |      +--------------------+
+    | created_at       |
+    +------------------+
+          |
+          |
+    +------------------+
+    | parameters       |
+    |------------------|
+    | param_id (PK)    |
+    | run_id (FK)      |
+    | name             |
+    | location         |
+    | type             |
+    | confidence       |
+    +------------------+
+          |
+          |
+    +------------------+
+    | evidence         |
+    |------------------|
+    | evidence_id (PK) |
+    | param_id (FK)    |
+    | error_text       |
+    | status_code      |
+    | pattern          |
+    +------------------+
+    ```
 
 3. Technology Stack
 
