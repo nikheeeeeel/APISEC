@@ -13,6 +13,51 @@ export const API_PATHS = {
   infer: buildEndpoint('/infer'),
   spec: buildEndpoint('/spec'),
   health: buildEndpoint('/health'),
+  
+  // API Registry
+  apis: buildEndpoint('/apis'),
+  apiDetail: (id: number) => buildEndpoint(`/apis/${id}`),
+  
+  // Schema Monitor
+  scanApi: (id: number) => buildEndpoint(`/apis/${id}/scan`),
+  rescanApi: (id: number) => buildEndpoint(`/apis/${id}/rescan`),
+  schemaVersions: (id: number) => buildEndpoint(`/apis/${id}/schemas`),
+  schemaVersion: (id: number, version: number) => buildEndpoint(`/apis/${id}/schemas/${version}`),
+  compareSchemas: (id: number) => buildEndpoint(`/apis/${id}/compare`),
+  downloadSchema: (id: number, version: number) => buildEndpoint(`/apis/${id}/schemas/${version}/download`),
+  downloadPdf: (id: number, version: number) => buildEndpoint(`/apis/${id}/schemas/${version}/pdf`),
 };
 
 export type ApiEndpoint = keyof typeof API_PATHS;
+
+export interface RegisteredApi {
+  id: number;
+  name: string;
+  base_url: string;
+  description: string | null;
+  date_added: string;
+}
+
+export interface SchemaSnapshot {
+  id: number;
+  api_id: number;
+  version_number: number;
+  schema_json: Record<string, unknown>;
+  schema_pdf: string | null;
+  timestamp: string;
+}
+
+export interface SchemaChange {
+  type: 'added' | 'removed' | 'modified';
+  category: 'endpoint' | 'parameter' | 'response' | 'authentication';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  details: string;
+  path?: string;
+}
+
+export interface SchemaComparison {
+  from_version: number;
+  to_version: number;
+  changes: SchemaChange[];
+  identical: boolean;
+}
