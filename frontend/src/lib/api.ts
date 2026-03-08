@@ -20,7 +20,9 @@ export const API_PATHS = {
   
   // Schema Monitor
   scanApi: (id: number) => buildEndpoint(`/apis/${id}/scan`),
+  scanApiStream: (id: number) => buildEndpoint(`/apis/${id}/scan/stream`),
   rescanApi: (id: number) => buildEndpoint(`/apis/${id}/rescan`),
+  rescanApiStream: (id: number) => buildEndpoint(`/apis/${id}/rescan/stream`),
   schemaVersions: (id: number) => buildEndpoint(`/apis/${id}/schemas`),
   schemaVersion: (id: number, version: number) => buildEndpoint(`/apis/${id}/schemas/${version}`),
   compareSchemas: (id: number) => buildEndpoint(`/apis/${id}/compare`),

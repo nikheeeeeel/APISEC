@@ -1,10 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { API_PATHS, RegisteredApi, SchemaSnapshot, SchemaChange, SchemaComparison } from '../lib/api';
 import { 
   ArrowLeft, FileJson, FileText, RefreshCw, GitCompare, ChevronDown, ChevronRight,
-  Plus, Minus, AlertTriangle, AlertCircle, Info, Loader2, History, X
+  Plus, Minus, AlertTriangle, AlertCircle, Info, Loader2, History, X, Ban
 } from 'lucide-react';
+
+interface ScanProgress {
+  status: string;
+  path: string;
+  progress: number;
+  total: number;
+}
 
 const severityColors = {
   critical: 'bg-red-100 text-red-800 border-red-300',
@@ -73,10 +80,14 @@ function SchemaMonitorPage() {
   const [snapshots, setSnapshots] = useState<SchemaSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersions, setSelectedVersions] = useState<[number, number] | null>(null);
   const [comparison, setComparison] = useState<SchemaComparison | null>(null);
   const [comparing, setComparing] = useState(false);
+  const [latestChanges, setLatestChanges] = useState<SchemaChange[]>([]);
+  const [, setShowChangesAlert] = useState(false);
+  const abortController = useRef<AbortController | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     endpoint: true,
     parameter: true,
@@ -111,28 +122,85 @@ function SchemaMonitorPage() {
     
     setScanning(true);
     setError(null);
+    setScanProgress({ status: 'starting', path: 'Initializing...', progress: 0, total: 1 });
+    setLatestChanges([]);
+    setShowChangesAlert(false);
+    
+    abortController.current = new AbortController();
     
     try {
       const response = await fetch(API_PATHS.rescanApi(Number(apiId)), {
-        method: 'POST'
+        method: 'POST',
+        signal: abortController.current.signal
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
+        const data = await response.json();
         setError(data.error || 'Rescan failed');
+        setScanning(false);
+        setScanProgress(null);
         return;
       }
       
-      if (data.identical) {
-        setError('No Changes Detected - Schema is identical to previous version');
-      } else {
-        fetchData();
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        setError('Failed to read response');
+        setScanning(false);
+        return;
       }
-    } catch (err) {
-      setError('Failed to rescan API');
+      
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.progress !== undefined) {
+                setScanProgress({
+                  status: data.status || 'checking',
+                  path: data.path || '',
+                  progress: data.progress,
+                  total: data.total
+                });
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+      
+      await fetchData();
+      
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Rescan cancelled');
+      } else {
+        setError('Failed to rescan API');
+      }
     } finally {
       setScanning(false);
+      setScanProgress(null);
+      abortController.current = null;
+    }
+  };
+  
+  const handleCancelScan = () => {
+    if (abortController.current) {
+      abortController.current.abort();
     }
   };
 
@@ -213,6 +281,16 @@ function SchemaMonitorPage() {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const getSeveritySummary = (changes: SchemaChange[]) => {
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+    changes.forEach(c => {
+      if (counts[c.severity as keyof typeof counts] !== undefined) {
+        counts[c.severity as keyof typeof counts]++;
+      }
+    });
+    return counts;
+  };
+
   const groupedChanges = comparison?.changes?.reduce((acc, change) => {
     if (!acc[change.category]) acc[change.category] = [];
     acc[change.category].push(change);
@@ -280,6 +358,77 @@ function SchemaMonitorPage() {
               <button onClick={() => setError(null)} className="text-yellow-600 hover:text-yellow-800">
                 <X className="h-5 w-5" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {scanning && scanProgress && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                <span className="font-medium text-blue-800">Scanning: {scanProgress.path}</span>
+              </div>
+              <button
+                onClick={handleCancelScan}
+                className="flex items-center space-x-1 text-sm text-red-600 hover:text-red-800"
+              >
+                <Ban className="h-4 w-4" />
+                <span>Cancel</span>
+              </button>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-3">
+              <div
+                className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${(scanProgress.progress / scanProgress.total) * 100}%` }}
+              />
+            </div>
+            <p className="text-sm text-blue-600 mt-2">
+              Checking path {scanProgress.progress} of {scanProgress.total}
+            </p>
+          </div>
+        )}
+
+        {latestChanges.length > 0 && (
+          <div className="mb-6 bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-orange-800">Changes Since Last Scan</h3>
+              <button onClick={() => { setShowChangesAlert(false); setComparison({ from_version: snapshots[0]?.version_number || 1, to_version: snapshots[0]?.version_number || 1, changes: latestChanges, identical: false }); }}>
+                <X className="h-5 w-5 text-orange-600" />
+              </button>
+            </div>
+            <div className="flex items-center space-x-4 text-sm">
+              {(() => {
+                const summary = getSeveritySummary(latestChanges);
+                return (
+                  <>
+                    {summary.critical > 0 && (
+                      <span className="flex items-center space-x-1 text-red-700 font-medium">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>{summary.critical} Critical</span>
+                      </span>
+                    )}
+                    {summary.high > 0 && (
+                      <span className="flex items-center space-x-1 text-orange-700 font-medium">
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>{summary.high} High</span>
+                      </span>
+                    )}
+                    {summary.medium > 0 && (
+                      <span className="flex items-center space-x-1 text-yellow-700 font-medium">
+                        <Info className="h-4 w-4" />
+                        <span>{summary.medium} Medium</span>
+                      </span>
+                    )}
+                    {summary.low > 0 && (
+                      <span className="flex items-center space-x-1 text-blue-700 font-medium">
+                        <Info className="h-4 w-4" />
+                        <span>{summary.low} Low</span>
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}

@@ -1,7 +1,8 @@
 import requests
 import json
 import io
-from typing import Dict, Any, List, Optional, Tuple
+import re
+from typing import Dict, Any, List, Optional, Tuple, Callable
 from datetime import datetime
 
 SCHEMA_PATHS = [
@@ -9,6 +10,9 @@ SCHEMA_PATHS = [
     '/openapi',
     '/swagger',
     '/docs',
+    '/api/schema/view/',
+    '/schema/view/',
+    '/v2/swagger.json',
     '/api/schema',
     '/api/openapi',
     '/api/swagger',
@@ -19,6 +23,45 @@ SCHEMA_PATHS = [
     '/api-docs',
     '/v2/api-docs',
     '/v3/api-docs',
+    '/api/',
+    '/api/v1/',
+    '/api/v2/',
+    '/api/schema/',
+    '/api/openapi.json',
+    '/api/swagger.json',
+    '/redoc',
+    '/swagger-ui/',
+    '/swagger-ui',
+    '/docs/json',
+    '/api-docs.json',
+    '/api-doc',
+    '/documentation',
+    '/doc',
+    '/json',
+    '/api.json',
+    '/_next/static/openapi.json',
+    '/swagger/v1/',
+    '/v2/api-docs',
+    '/v3/api-docs',
+    '/openapi',
+    '/api-docs',
+    '/documentation',
+    '/docs-json',
+    '/swagger/v1',
+    '/_swagger',
+    '/swagger',
+]
+
+PRIORITY_PATHS = [
+    '/api/schema/',
+    '/api/schema',
+    '/openapi.json',
+    '/openapi.yaml',
+    '/swagger.json',
+    '/swagger.yaml',
+    '/v3/api-docs',
+    '/docs',
+    '/openapi',
 ]
 
 def generate_pdf_from_json(schema_json: Dict[str, Any]) -> str:
@@ -94,8 +137,19 @@ def generate_pdf_from_json(schema_json: Dict[str, Any]) -> str:
         return None
 
 
-def crawl_for_schema(base_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Crawl the API base URL for schema endpoints."""
+def crawl_for_schema(
+    base_url: str, 
+    timeout: float = 5.0,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Crawl the API base URL for schema endpoints.
+    
+    Args:
+        base_url: The base URL of the API
+        timeout: Request timeout in seconds (default 5)
+        progress_callback: Optional callback function(status, path, progress, total)
+            Called during crawling to report progress
+    """
     
     if not base_url.startswith('http://') and not base_url.startswith('https://'):
         base_url = 'https://' + base_url
@@ -106,10 +160,19 @@ def crawl_for_schema(base_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[
         'User-Agent': 'APISec-Schema-Monitor/1.0'
     })
     
-    for path in SCHEMA_PATHS:
+    priority_paths = [p for p in PRIORITY_PATHS if p in SCHEMA_PATHS]
+    remaining_paths = [p for p in SCHEMA_PATHS if p not in PRIORITY_PATHS]
+    all_paths = priority_paths + remaining_paths
+    
+    total = len(all_paths)
+    
+    for idx, path in enumerate(all_paths):
+        if progress_callback:
+            progress_callback("checking", path, idx + 1, total)
+        
         url = base_url.rstrip('/') + path
         try:
-            response = session.get(url, timeout=10)
+            response = session.get(url, timeout=timeout)
             if response.status_code == 200:
                 content_type = response.headers.get('Content-Type', '')
                 
@@ -117,6 +180,8 @@ def crawl_for_schema(base_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[
                     try:
                         schema = response.json()
                         if is_valid_openapi_schema(schema):
+                            if progress_callback:
+                                progress_callback("found", url, idx + 1, total)
                             return schema, url
                     except:
                         pass
@@ -125,6 +190,8 @@ def crawl_for_schema(base_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[
                         import yaml
                         schema = yaml.safe_load(response.text)
                         if is_valid_openapi_schema(schema):
+                            if progress_callback:
+                                progress_callback("found", url, idx + 1, total)
                             return schema, url
                     except:
                         pass
@@ -132,12 +199,103 @@ def crawl_for_schema(base_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[
                     try:
                         schema = response.json()
                         if is_valid_openapi_schema(schema):
+                            if progress_callback:
+                                progress_callback("found", url, idx + 1, total)
                             return schema, url
                     except:
                         pass
                         
         except requests.exceptions.RequestException:
             continue
+    
+    schema, found_url = discover_schema_from_html(base_url, session, timeout, progress_callback, total)
+    if schema:
+        return schema, found_url
+    
+    return None, None
+
+
+def discover_schema_from_html(
+    base_url: str, 
+    session: requests.Session,
+    timeout: float = 5.0,
+    progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
+    current_progress: int = 0
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Discover schema from HTML pages by parsing link tags and script tags."""
+    
+    if progress_callback:
+        progress_callback("checking", "/ (HTML discovery)", current_progress + 1, current_progress + 1)
+    
+    try:
+        response = session.get(base_url, timeout=timeout)
+        if response.status_code != 200:
+            return None, None
+        
+        html_content = response.text
+        
+        link_patterns = [
+            r'<link[^>]+rel=["\']api-doc["\'][^>]+href=["\']([^"\']+)["\']',
+            r'<link[^>]+href=["\']([^"\']+api[^"\']*)["\'][^>]+rel=["\'][^"\']*["\']',
+            r'<link[^>]+rel=["\'][^"\']*["\'][^>]+href=["\']([^"\']+swagger[^"\']*)["\']',
+        ]
+        
+        for pattern in link_patterns:
+            matches = re.findall(pattern, html_content, re.IGNORECASE)
+            for match in matches:
+                if match.startswith('http'):
+                    url = match
+                else:
+                    url = base_url.rstrip('/') + match
+                
+                try:
+                    schema_response = session.get(url, timeout=timeout)
+                    if schema_response.status_code == 200:
+                        try:
+                            schema = schema_response.json()
+                            if is_valid_openapi_schema(schema):
+                                return schema, url
+                        except:
+                            pass
+                except:
+                    continue
+        
+        script_patterns = [
+            r'<script[^>]+src=["\']([^"\']+openapi[^"\']*)["\']',
+            r'<script[^>]+src=["\']([^"\']+swagger[^"\']*)["\']',
+            r'window\.openApiSpec\s*=\s*({[^}]+})',
+        ]
+        
+        for pattern in script_patterns:
+            matches = re.findall(pattern, html_content, re.IGNORECASE)
+            for match in matches:
+                if match.startswith('{'):
+                    try:
+                        schema = json.loads(match)
+                        if is_valid_openapi_schema(schema):
+                            return schema, base_url
+                    except:
+                        pass
+                
+                if match.startswith('http'):
+                    url = match
+                else:
+                    url = base_url.rstrip('/') + match
+                
+                try:
+                    schema_response = session.get(url, timeout=timeout)
+                    if schema_response.status_code == 200:
+                        try:
+                            schema = schema_response.json()
+                            if is_valid_openapi_schema(schema):
+                                return schema, url
+                        except:
+                            pass
+                except:
+                    continue
+        
+    except requests.exceptions.RequestException:
+        pass
     
     return None, None
 

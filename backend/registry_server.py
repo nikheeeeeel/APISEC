@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 import json
 import logging
 import base64
 import uvicorn
 from typing import Optional
+import asyncio
+import io
 from registry_db import init_db, ApiRegistry, SchemaSnapshot
 from schema_monitor import crawl_for_schema, compare_schemas, generate_pdf_from_json
 
@@ -269,6 +271,161 @@ async def rescan_api(api_id: int):
         logger.error(f"Error rescanning API: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.post("/apis/{api_id}/scan/stream")
+async def scan_api_stream(api_id: int):
+    """Streaming SSE endpoint for schema scanning with progress updates."""
+    
+    async def event_stream():
+        try:
+            api = ApiRegistry.get_by_id(api_id)
+            if not api:
+                yield f"event: error\ndata: {json.dumps({'error': 'API not found'})}\n\n"
+                return
+            
+            base_url = api['base_url']
+            
+            progress_queue = asyncio.Queue()
+            
+            def progress_callback(status: str, path: str, progress: int, total: int):
+                asyncio.create_task(progress_queue.put({
+                    'status': status,
+                    'path': path,
+                    'progress': progress,
+                    'total': total
+                }))
+            
+            async def progress_reader():
+                while True:
+                    try:
+                        data = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                        yield f"event: progress\ndata: {json.dumps(data)}\n\n"
+                    except asyncio.TimeoutError:
+                        if crawl_done:
+                            break
+            
+            crawl_done = False
+            
+            async def run_crawl():
+                nonlocal crawl_done
+                try:
+                    schema, found_url = await asyncio.to_thread(
+                        crawl_for_schema,
+                        base_url,
+                        timeout=3.0,
+                        progress_callback=progress_callback
+                    )
+                    
+                    if not schema:
+                        yield f"event: error\ndata: {json.dumps({'error': 'Schema Not Found', 'message': 'No OpenAPI/Swagger schema found at common paths'})}\n\n"
+                        crawl_done = True
+                        return
+                    
+                    pdf_base64 = generate_pdf_from_json(schema)
+                    snapshot = SchemaSnapshot.create(api_id, schema, pdf_base64)
+                    
+                    yield f"event: complete\ndata: {json.dumps({'message': 'Schema scan completed successfully', 'schema_url': found_url, 'snapshot': snapshot})}\n\n"
+                except Exception as e:
+                    logger.error(f"Error in crawl: {e}")
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                finally:
+                    crawl_done = True
+            
+            crawl_task = asyncio.create_task(run_crawl())
+            
+            while not crawl_done or not progress_queue.empty():
+                try:
+                    data = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
+                    yield f"event: progress\ndata: {json.dumps(data)}\n\n"
+                except asyncio.TimeoutError:
+                    if crawl_done:
+                        break
+            
+            await crawl_task
+            
+        except Exception as e:
+            logger.error(f"Error in streaming scan: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.post("/apis/{api_id}/rescan/stream")
+async def rescan_api_stream(api_id: int):
+    """Streaming SSE endpoint for schema rescanning with progress updates."""
+    
+    async def event_stream():
+        try:
+            api = ApiRegistry.get_by_id(api_id)
+            if not api:
+                yield f"event: error\ndata: {json.dumps({'error': 'API not found'})}\n\n"
+                return
+            
+            base_url = api['base_url']
+            
+            progress_queue = asyncio.Queue()
+            crawl_result = {}
+            crawl_error = {}
+            
+            def progress_callback(status: str, path: str, progress: int, total: int):
+                asyncio.create_task(progress_queue.put({
+                    'status': status,
+                    'path': path,
+                    'progress': progress,
+                    'total': total
+                }))
+            
+            def run_crawl():
+                try:
+                    schema, found_url = crawl_for_schema(
+                        base_url, 
+                        timeout=3.0,
+                        progress_callback=progress_callback
+                    )
+                    crawl_result['schema'] = schema
+                    crawl_result['found_url'] = found_url
+                except Exception as e:
+                    crawl_error['error'] = str(e)
+            
+            crawl_done = False
+            
+            await asyncio.to_thread(run_crawl)
+            
+            while not progress_queue.empty():
+                data = await progress_queue.get()
+                yield f"event: progress\ndata: {json.dumps(data)}\n\n"
+            
+            if 'error' in crawl_error:
+                yield f"event: error\ndata: {json.dumps({'error': crawl_error['error']})}\n\n"
+                return
+            
+            schema = crawl_result.get('schema')
+            found_url = crawl_result.get('found_url')
+            
+            if not schema:
+                yield f"event: error\ndata: {json.dumps({'error': 'Schema Not Found', 'message': 'No OpenAPI/Swagger schema found at common paths'})}\n\n"
+                return
+            
+            latest_snapshot = SchemaSnapshot.get_latest(api_id)
+            changes = []
+            
+            if latest_snapshot:
+                old_schema = latest_snapshot['schema_json']
+                changes = compare_schemas(old_schema, schema)
+                
+                if not changes:
+                    yield f"event: complete\ndata: {json.dumps({'message': 'No Changes Detected', 'identical': True, 'changes': []})}\n\n"
+                    return
+            
+            pdf_base64 = generate_pdf_from_json(schema)
+            snapshot = SchemaSnapshot.create(api_id, schema, pdf_base64)
+            
+            yield f"event: complete\ndata: {json.dumps({'message': 'New schema version stored', 'identical': False, 'changes': changes if latest_snapshot else [], 'snapshot': snapshot})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error in streaming rescan: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
 @app.get("/apis/{api_id}/schemas")
 async def get_schema_versions(api_id: int):
     try:
@@ -378,4 +535,4 @@ if __name__ == "__main__":
     print("  POST /apis  - Register new API")
     print("\nStarting server on http://127.0.0.1:8000")
     
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

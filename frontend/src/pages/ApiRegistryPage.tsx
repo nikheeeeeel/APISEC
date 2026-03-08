@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_PATHS, RegisteredApi } from '../lib/api';
-import { Plus, Trash2, RefreshCw, ExternalLink, Search, X, Loader2 } from 'lucide-react';
+import { Plus, Trash2, RefreshCw, ExternalLink, Search, X, Loader2, Ban } from 'lucide-react';
+
+interface ScanProgress {
+  status: string;
+  path: string;
+  progress: number;
+  total: number;
+}
 
 function ApiRegistryPage() {
   const navigate = useNavigate();
@@ -10,6 +17,8 @@ function ApiRegistryPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [scanning, setScanning] = useState<number | null>(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const abortControllers = useRef<Map<number, AbortController>>(new Map());
   
   const [formData, setFormData] = useState({
     name: '',
@@ -69,48 +78,161 @@ function ApiRegistryPage() {
   const handleScan = async (api: RegisteredApi) => {
     setScanning(api.id);
     setError(null);
+    setScanProgress({ status: 'starting', path: 'Initializing...', progress: 0, total: 1 });
+    
+    const controller = new AbortController();
+    abortControllers.current.set(api.id, controller);
     
     try {
       const response = await fetch(API_PATHS.scanApi(api.id), {
-        method: 'POST'
+        method: 'POST',
+        signal: controller.signal
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
+        const data = await response.json();
         setError(data.error || 'Scan failed');
+        setScanning(null);
+        setScanProgress(null);
         return;
       }
       
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        setError('Failed to read response');
+        setScanning(null);
+        return;
+      }
+      
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.progress !== undefined) {
+                setScanProgress({
+                  status: data.status || 'checking',
+                  path: data.path || '',
+                  progress: data.progress,
+                  total: data.total
+                });
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+      
       navigate(`/schema-monitor/${api.id}`);
-    } catch (err) {
-      setError('Failed to scan API');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Scan cancelled');
+      } else {
+        setError('Failed to scan API');
+      }
     } finally {
       setScanning(null);
+      setScanProgress(null);
+      abortControllers.current.delete(api.id);
     }
   };
 
   const handleRescan = async (api: RegisteredApi) => {
     setScanning(api.id);
     setError(null);
+    setScanProgress({ status: 'starting', path: 'Initializing...', progress: 0, total: 1 });
+    
+    const controller = new AbortController();
+    abortControllers.current.set(api.id, controller);
     
     try {
       const response = await fetch(API_PATHS.rescanApi(api.id), {
-        method: 'POST'
+        method: 'POST',
+        signal: controller.signal
       });
       
-      const data = await response.json();
-      
       if (!response.ok) {
+        const data = await response.json();
         setError(data.error || 'Rescan failed');
+        setScanning(null);
+        setScanProgress(null);
         return;
       }
       
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        setError('Failed to read response');
+        setScanning(null);
+        return;
+      }
+      
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.progress !== undefined) {
+                setScanProgress({
+                  status: data.status || 'checking',
+                  path: data.path || '',
+                  progress: data.progress,
+                  total: data.total
+                });
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+      
       navigate(`/schema-monitor/${api.id}`);
-    } catch (err) {
-      setError('Failed to rescan API');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Rescan cancelled');
+      } else {
+        setError('Failed to rescan API');
+      }
     } finally {
       setScanning(null);
+      setScanProgress(null);
+      abortControllers.current.delete(api.id);
+    }
+  };
+  
+  const handleCancelScan = (apiId: number) => {
+    const controller = abortControllers.current.get(apiId);
+    if (controller) {
+      controller.abort();
     }
   };
 
@@ -244,6 +366,35 @@ function ApiRegistryPage() {
                     <p className="text-sm text-gray-500 mt-2">
                       Added: {new Date(api.date_added).toLocaleDateString()}
                     </p>
+                    
+                    {scanning === api.id && scanProgress && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                            <span className="text-sm font-medium text-blue-800">
+                              Scanning: {scanProgress.path}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleCancelScan(api.id)}
+                            className="flex items-center space-x-1 text-xs text-red-600 hover:text-red-800"
+                          >
+                            <Ban className="h-3 w-3" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-2">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${(scanProgress.progress / scanProgress.total) * 100}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-blue-600 mt-1">
+                          Checking path {scanProgress.progress} of {scanProgress.total}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex items-center space-x-2">
