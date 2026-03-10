@@ -1,11 +1,12 @@
 """
-REST Parameter Discovery v2 - Enhanced modular architecture.
+API Security - Schema Discovery and Diffing Module.
 
-This package provides a complete, modular parameter discovery system
-with dependency injection, unit-testable components, and backward compatibility.
+This package provides focused functionality for:
+1. API schema discovery and monitoring
+2. Differential analysis between API responses
 """
 
-# Core models and interfaces
+# Core models
 from .models import (
     AuthConfig,
     DiscoveryRequest,
@@ -15,28 +16,32 @@ from .models import (
     ConfidenceScore
 )
 
-# Transport layer
-from .transport import HttpClientInterface, RequestsHttpClient
-
-# Fingerprinting
-from .fingerprint import FrameworkDetector
-
-# Probes
-from .probes import ProbeInterface, ProbeFactory
-
-# Scoring
-from .scoring import calculate_confidence
-
-# Orchestrator
-from .orchestrator import (
-    DiscoveryOrchestrator,
-    V2Orchestrator,
-    create_v2_orchestrator,
-    orchestrate_inference_v2,
+# Schema monitoring
+from .schema_monitor import (
+    discover_schema,
+    monitor_schema_changes,
+    generate_pdf_from_json
 )
 
-# Backward compatibility
-from .orchestrator import orchestrate_inference as legacy_orchestrate_inference
+# Database operations
+from .registry_db import (
+    SchemaSnapshot,
+    APIMetadata
+)
+
+# Fingerprinting and diffing
+from .fingerprint import (
+    ResponseFingerprint,
+    FingerprintDiff,
+    create_fingerprint,
+    compare_fingerprints
+)
+
+# Differential engine
+from .probes.differential_engine import (
+    DifferentialEngine,
+    ParameterCandidate
+)
 
 __all__ = [
     # Models
@@ -47,26 +52,22 @@ __all__ = [
     'DetectionResult',
     'ConfidenceScore',
     
-    # Transport
-    'HttpClientInterface',
-    'RequestsHttpClient',
+    # Schema monitoring
+    'discover_schema',
+    'monitor_schema_changes',
+    'generate_pdf_from_json',
     
-    # Fingerprinting
-    'FrameworkDetector',
+    # Database operations
+    'SchemaSnapshot',
+    'APIMetadata',
     
-    # Probes
-    'ProbeInterface',
-    'ProbeFactory',
+    # Fingerprinting and diffing
+    'ResponseFingerprint',
+    'FingerprintDiff',
+    'create_fingerprint',
+    'compare_fingerprints',
     
-    # Scoring
-    'calculate_confidence',
-    
-    # Orchestrator
-    'DiscoveryOrchestrator',
-    'V2Orchestrator',
-    'create_v2_orchestrator',
-    'orchestrate_inference_v2',
-
-    # Backward compatibility
-    'legacy_orchestrate_inference'
+    # Differential engine
+    'DifferentialEngine',
+    'ParameterCandidate'
 ]

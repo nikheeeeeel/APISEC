@@ -316,12 +316,96 @@ def is_valid_openapi_schema(schema: Any) -> bool:
 
 
 def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Compare two schemas and return a list of changes."""
+    """Compare two schemas and return a comprehensive list of changes."""
     changes = []
     
+    def deep_compare(obj1, obj2, path="", current_path=""):
+        """Recursively compare two objects and find all differences."""
+        differences = []
+        
+        if type(obj1) != type(obj2):
+            differences.append({
+                'type': 'modified',
+                'category': 'schema',
+                'severity': 'high',
+                'details': f'Type changed from {type(obj1).__name__} to {type(obj2).__name__} at {path}',
+                'path': current_path or 'root'
+            })
+            return differences
+        
+        if isinstance(obj1, dict) and isinstance(obj2, dict):
+            # Check for removed keys
+            for key in obj1:
+                if key not in obj2:
+                    differences.append({
+                        'type': 'removed',
+                        'category': 'schema',
+                        'severity': 'medium',
+                        'details': f'Property "{key}" removed from {path}',
+                        'path': f"{current_path}/{key}" if current_path else key
+                    })
+            
+            # Check for added keys
+            for key in obj2:
+                if key not in obj1:
+                    differences.append({
+                        'type': 'added',
+                        'category': 'schema',
+                        'severity': 'medium',
+                        'details': f'Property "{key}" added to {path}',
+                        'path': f"{current_path}/{key}" if current_path else key
+                    })
+            
+            # Check for modified values
+            for key in obj1:
+                if key in obj2:
+                    new_path = f"{current_path}/{key}" if current_path else key
+                    value_diffs = deep_compare(obj1[key], obj2[key], new_path, key)
+                    differences.extend(value_diffs)
+        
+        elif isinstance(obj1, list) and isinstance(obj2, list):
+            # Check for removed items
+            for i, item in enumerate(obj1):
+                if item not in obj2:
+                    differences.append({
+                        'type': 'removed',
+                        'category': 'schema',
+                        'severity': 'low',
+                        'details': f'Array item removed from {path}[{i}]',
+                        'path': f"{current_path}[{i}]"
+                    })
+            
+            # Check for added items
+            for i, item in enumerate(obj2):
+                if item not in obj1:
+                    differences.append({
+                        'type': 'added',
+                        'category': 'schema',
+                        'severity': 'low',
+                        'details': f'Array item added to {path}[{i}]',
+                        'path': f"{current_path}[{i}]"
+                    })
+        
+        elif isinstance(obj1, str) and isinstance(obj2, str):
+            if obj1 != obj2:
+                differences.append({
+                    'type': 'modified',
+                    'category': 'schema',
+                    'severity': 'low',
+                    'details': f'Value changed from "{obj1}" to "{obj2}" at {path}',
+                    'path': current_path or 'root'
+                })
+        
+        return differences
+    
+    # Perform comprehensive comparison
+    schema_differences = deep_compare(old_schema, new_schema)
+    
+    # Add specific endpoint, parameter, and response comparisons
     old_paths = old_schema.get('paths', {})
     new_paths = new_schema.get('paths', {})
     
+    # Endpoint changes
     old_endpoints = set(old_paths.keys())
     new_endpoints = set(new_paths.keys())
     
@@ -330,7 +414,7 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
             'type': 'added',
             'category': 'endpoint',
             'severity': 'low',
-            'details': f'New endpoint added: {endpoint}',
+            'details': f'New endpoint "{endpoint}" added to API',
             'path': endpoint
         })
     
@@ -339,10 +423,11 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
             'type': 'removed',
             'category': 'endpoint',
             'severity': 'high',
-            'details': f'Endpoint removed: {endpoint}',
+            'details': f'Endpoint "{endpoint}" removed from API',
             'path': endpoint
         })
     
+    # Detailed endpoint method and parameter comparison
     for endpoint in old_endpoints & new_endpoints:
         old_methods = old_paths.get(endpoint, {})
         new_methods = new_paths.get(endpoint, {})
@@ -351,13 +436,14 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
             old_method_set = set(k.lower() for k in old_methods.keys() if k.upper() in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
             new_method_set = set(k.lower() for k in new_methods.keys() if k.upper() in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
             
+            # Method changes
             for method in new_method_set - old_method_set:
                 changes.append({
                     'type': 'added',
                     'category': 'endpoint',
                     'severity': 'low',
                     'details': f'New method {method.upper()} added to {endpoint}',
-                    'path': endpoint
+                    'path': f"{endpoint}/{method.upper()}"
                 })
             
             for method in old_method_set - new_method_set:
@@ -366,9 +452,10 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
                     'category': 'endpoint',
                     'severity': 'high',
                     'details': f'Method {method.upper()} removed from {endpoint}',
-                    'path': endpoint
+                    'path': f"{endpoint}/{method.upper()}"
                 })
             
+            # Detailed parameter comparison for each method
             for method in old_method_set & new_method_set:
                 old_details = old_methods.get(method.upper()) or old_methods.get(method.lower()) or {}
                 new_details = new_methods.get(method.upper()) or new_methods.get(method.lower()) or {}
@@ -376,46 +463,85 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
                 old_params = old_details.get('parameters', [])
                 new_params = new_details.get('parameters', [])
                 
-                old_param_names = {p.get('name'): p for p in old_params if isinstance(p, dict)}
-                new_param_names = {p.get('name'): p for p in new_params if isinstance(p, dict)}
-                
-                for param_name in set(new_param_names.keys()) - set(old_param_names.keys()):
-                    changes.append({
-                        'type': 'added',
-                        'category': 'parameter',
-                        'severity': 'medium',
-                        'details': f'New parameter "{param_name}" added to {endpoint} {method.upper()}',
-                        'path': f"{endpoint}/{method.upper()}/{param_name}"
-                    })
-                
-                for param_name in set(old_param_names.keys()) - set(new_param_names.keys()):
-                    changes.append({
-                        'type': 'removed',
-                        'category': 'parameter',
-                        'severity': 'high',
-                        'details': f'Parameter "{param_name}" removed from {endpoint} {method.upper()}',
-                        'path': f"{endpoint}/{method.upper()}/{param_name}"
-                    })
-                
-                for param_name in set(old_param_names.keys()) & set(new_param_names.keys()):
-                    old_param = old_param_names[param_name]
-                    new_param = new_param_names[param_name]
-                    
-                    if old_param.get('required') != new_param.get('required'):
+                # Parameter additions
+                for param in new_params:
+                    if param not in old_params:
+                        param_name = param.get('name', 'unnamed')
+                        param_type = param.get('type', 'unknown')
+                        param_required = param.get('required', False)
                         changes.append({
-                            'type': 'modified',
+                            'type': 'added',
                             'category': 'parameter',
-                            'severity': 'high',
-                            'details': f'Parameter "{param_name}" required status changed from {old_param.get("required")} to {new_param.get("required")} in {endpoint} {method.upper()}',
-                            'path': f"{endpoint}/{method.upper()}/{param_name}"
+                            'severity': 'medium',
+                            'details': f'Parameter "{param_name}" ({param_type}) added to {endpoint} {method.upper()}',
+                            'path': f"{endpoint}/{method.upper()}/parameters/{param_name}"
                         })
                 
+                # Parameter removals
+                for param in old_params:
+                    if param not in new_params:
+                        param_name = param.get('name', 'unnamed')
+                        param_type = param.get('type', 'unknown')
+                        changes.append({
+                            'type': 'removed',
+                            'category': 'parameter',
+                            'severity': 'high',
+                            'details': f'Parameter "{param_name}" ({param_type}) removed from {endpoint} {method.upper()}',
+                            'path': f"{endpoint}/{method.upper()}/parameters/{param_name}"
+                        })
+                
+                # Parameter modifications
+                for param in old_params:
+                    if param in new_params:
+                        old_param = old_params[old_params.index(param)]
+                        new_param = new_params[new_params.index(param)]
+                        
+                        param_name = param.get('name', 'unnamed')
+                        param_path = f"{endpoint}/{method.upper()}/parameters/{param_name}"
+                        
+                        # Check for type changes
+                        if old_param.get('type') != new_param.get('type'):
+                            changes.append({
+                                'type': 'modified',
+                                'category': 'parameter',
+                                'severity': 'medium',
+                                'details': f'Parameter "{param_name}" type changed from {old_param.get("type", "unknown")} to {new_param.get("type", "unknown")} in {endpoint} {method.upper()}',
+                                'path': param_path
+                            })
+                        
+                        # Check for required status changes
+                        if old_param.get('required') != new_param.get('required'):
+                            changes.append({
+                                'type': 'modified',
+                                'category': 'parameter',
+                                'severity': 'high',
+                                'details': f'Parameter "{param_name}" required status changed from {old_param.get("required")} to {new_param.get("required")} in {endpoint} {method.upper()}',
+                                'path': param_path
+                            })
+                        
+                        # Check for description changes
+                        if old_param.get('description') != new_param.get('description'):
+                            changes.append({
+                                'type': 'modified',
+                                'category': 'parameter',
+                                'severity': 'low',
+                                'details': f'Parameter "{param_name}" description changed in {endpoint} {method.upper()}',
+                                'path': param_path
+                            })
+                        
+                        # Deep compare parameter schemas
+                        if 'schema' in old_param and 'schema' in new_param:
+                            schema_diffs = deep_compare(old_param['schema'], new_param['schema'], param_path, 'schema')
+                            changes.extend(schema_diffs)
+                
+                # Response changes
                 old_responses = old_details.get('responses', {})
                 new_responses = new_details.get('responses', {})
                 
                 old_response_codes = set(old_responses.keys())
                 new_response_codes = set(new_responses.keys())
                 
+                # Added response codes
                 for code in new_response_codes - old_response_codes:
                     changes.append({
                         'type': 'added',
@@ -425,6 +551,7 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
                         'path': f"{endpoint}/{method.upper()}/responses/{code}"
                     })
                 
+                # Removed response codes
                 for code in old_response_codes - new_response_codes:
                     changes.append({
                         'type': 'removed',
@@ -433,7 +560,27 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
                         'details': f'Response code {code} removed from {endpoint} {method.upper()}',
                         'path': f"{endpoint}/{method.upper()}/responses/{code}"
                     })
+                
+                # Modified response codes
+                for code in old_response_codes & new_response_codes:
+                    old_resp = old_responses[code]
+                    new_resp = new_responses[code]
+                    
+                    if old_resp.get('description') != new_resp.get('description'):
+                        changes.append({
+                            'type': 'modified',
+                            'category': 'response',
+                            'severity': 'low',
+                            'details': f'Response {code} description changed in {endpoint} {method.upper()}',
+                            'path': f"{endpoint}/{method.upper()}/responses/{code}/description"
+                        })
+                    
+                    # Deep compare response schemas
+                    if 'schema' in old_resp and 'schema' in new_resp:
+                        schema_diffs = deep_compare(old_resp['schema'], new_resp['schema'], f"{endpoint}/{method.upper()}/responses/{code}", 'schema')
+                        changes.extend(schema_diffs)
     
+    # Security changes
     old_security = old_schema.get('security', [])
     new_security = new_schema.get('security', [])
     

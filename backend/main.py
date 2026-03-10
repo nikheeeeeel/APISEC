@@ -1,17 +1,26 @@
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import tempfile
-import os
-import json
 import logging
-from datetime import datetime
 from pydantic import BaseModel
-from typing import List, Optional
-from .models import CanonicalParameter
-from .spec_utils import load_spec, diff_spec, merge_spec
-from .arjun_wrapper import run_arjun, parse_arjun_output
+from typing import Optional
+from schema_monitor import crawl_for_schema, generate_pdf_from_json, compare_schemas
+from probes.differential_engine import DifferentialEngine
+from fingerprint import create_fingerprint, compare_fingerprints
+from runtime_validator import create_runtime_validator
+from models import DiscoveryRequest
+from models_runtime import (
+    RuntimeValidationRequest, 
+    RuntimeValidationResponse, 
+    EndpointTestResult
+)
+from registry_db import init_db, ApiRegistry, SchemaSnapshot
+import sys
+import os
+
+# Add current directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
 logging.basicConfig(
@@ -23,15 +32,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class DiscoverRequest(BaseModel):
-    url: str
+app = FastAPI(title="API Schema Discovery & Diffing")
 
-app = FastAPI(title="APISec Backend")
+# Initialize database
+init_db()
 
-# CORS settings to allow frontend access
+# CORS settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # adjust for production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -40,242 +49,354 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok"}
 
-@app.post("/test-diff")
-async def test_diff(file: UploadFile = File(...)):
+@app.post("/validate-runtime")
+async def validate_runtime_endpoint(request: RuntimeValidationRequest):
     """
-    Test endpoint for spec diff functionality.
-    Accepts OpenAPI spec file upload and returns missing parameters.
-    """
-    try:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-        
-        try:
-            # Load spec
-            spec_dict = load_spec(temp_file_path)
-            
-            # Example discovered parameters for testing
-            example_params = [
-                CanonicalParameter(
-                    name="foo",
-                    in_="query",
-                    type_="string",
-                    required=True,
-                    description="Test parameter foo"
-                ),
-                CanonicalParameter(
-                    name="bar", 
-                    in_="header",
-                    type_="integer",
-                    required=False,
-                    description="Test parameter bar"
-                ),
-                CanonicalParameter(
-                    name="param1",
-                    in_="query", 
-                    type_="string",
-                    required=True,
-                    description="Discovered parameter from Arjun"
-                )
-            ]
-            
-            # Find missing parameters
-            missing_params = diff_spec(spec_dict, example_params)
-            
-            # Convert to dict for JSON response
-            missing_params_dict = [
-                {
-                    "name": param.name,
-                    "in": param.in_,
-                    "type": param.type_,
-                    "required": param.required,
-                    "description": param.description,
-                    "example": param.example
-                }
-                for param in missing_params
-            ]
-            
-            return {"to_add": missing_params_dict}
-            
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
-            
-    except Exception as e:
-        return JSONResponse(
-            status_code=400,
-            content={"error": str(e)}
-        )
-
-
-@app.post("/discover")
-async def discover(
-    url: Optional[str] = Form(""),
-    file: Optional[UploadFile] = File(None)
-):
-    """
-    Main discovery endpoint that integrates Arjun, spec diff, and merge.
+    Validate API schema against runtime behavior.
     
     Args:
-        url: API endpoint to scan with Arjun
-        file: Optional OpenAPI spec file (JSON/YAML)
+        request: RuntimeValidationRequest containing base URL and schema info
         
     Returns:
-        JSON with path to updated spec file
+        JSON with runtime validation results
     """
-    temp_spec_path = None
-    arjun_output_path = None
-    
     try:
-        logger.info(f"Starting discovery for URL: {url}")
+        logger.info(f"Starting runtime validation for URL: {request.base_url}")
         
-        # Basic URL validation
-        if not url or not url.strip():
-            logger.error("Empty URL provided")
-            return JSONResponse(
-                status_code=400,
-                content={"error": "URL is required"}
+        # Create runtime validator
+        validator = create_runtime_validator()
+        
+        # Perform validation
+        result = await validator.validate_schema(request.base_url, request.schema_info)
+        
+        # Convert endpoint tests to response models
+        endpoint_tests = []
+        for test in result.endpoint_tests:
+            endpoint_test = EndpointTestResult(
+                method=test.method,
+                path=test.path,
+                url=test.url,
+                expected_status=test.expected_status,
+                actual_status=test.actual_status,
+                expected_response_schema=test.expected_response_schema,
+                actual_response=test.actual_response,
+                response_time_ms=test.response_time_ms,
+                error=test.error,
+                status_mismatch=test.status_mismatch,
+                schema_mismatch=test.schema_mismatch,
+                validation_passed=test.validation_passed
             )
+            endpoint_tests.append(endpoint_test)
         
-        # Basic URL format validation
-        if not (url.startswith('http://') or url.startswith('https://')):
-            logger.error(f"Invalid URL format: {url}")
-            return JSONResponse(
-                status_code=400,
-                content={"error": "URL must start with http:// or https://"}
-            )
+        # Generate summary
+        summary = f"Runtime validation completed: {result.passed_endpoints}/{result.tested_endpoints} endpoints passed"
+        if result.failed_endpoints > 0:
+            summary += f", {result.failed_endpoints} endpoints failed"
         
-        # Step 1: Load or create spec
-        if file:
-            logger.info(f"Loading uploaded spec file: {file.filename}")
-            # Save uploaded spec temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
-                content = await file.read()
-                temp_file.write(content)
-                temp_spec_path = temp_file.name
-            
-            spec_dict = load_spec(temp_spec_path)
-        else:
-            logger.info("No spec file provided, creating empty template")
-            spec_dict = {
-                "openapi": "3.0.0",
-                "info": {
-                    "title": "Generated API Spec",
-                    "version": "1.0.0",
-                    "description": f"API spec generated from scanning {url}"
-                },
-                "paths": {},
-                "components": {
-                    "parameters": {}
-                }
-            }
-        
-        # Step 2: Run Arjun on URL
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        arjun_output_path = f"arjun_output_{timestamp}.json"
-        
-        logger.info(f"Running Arjun on URL: {url}")
-        arjun_result = run_arjun(url, arjun_output_path)
-        
-        if not arjun_result["success"]:
-            logger.error(f"Arjun execution failed: {arjun_result['stderr']}")
-            return JSONResponse(
-                status_code=500,
-                content={"error": f"Arjun execution failed: {arjun_result['stderr']}"}
-            )
-        
-        # Check if file was created
-        if not os.path.exists(arjun_output_path):
-            logger.info(f"Arjun output file not found (no parameters discovered): {arjun_output_path}")
-            # This is normal when Arjun finds no parameters
-            discovered_params = []
-        else:
-            logger.info(f"Arjun completed successfully")
-            
-            # Step 3: Parse Arjun output into canonical parameters
-            discovered_params = parse_arjun_output(arjun_output_path)
-            logger.info(f"Parsed {len(discovered_params)} discovered parameters")
-        
-        # Step 4: Diff canonical params with loaded spec
-        missing_params = diff_spec(spec_dict, discovered_params)
-        logger.info(f"Found {len(missing_params)} missing parameters")
-        
-        # Step 5: Merge missing parameters into spec
-        updated_spec = merge_spec(spec_dict, missing_params)
-        
-        # Step 6: Export updated spec with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_format = "json"  # Default to JSON
-        output_filename = f"outputs/updated_spec_{timestamp}.{output_format}"
-        
-        # Ensure outputs directory exists
-        os.makedirs("outputs", exist_ok=True)
-        
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            json.dump(updated_spec, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Updated spec saved to: {output_filename}")
+        response = RuntimeValidationResponse(
+            base_url=result.base_url,
+            total_endpoints=result.total_endpoints,
+            tested_endpoints=result.tested_endpoints,
+            passed_endpoints=result.passed_endpoints,
+            failed_endpoints=result.failed_endpoints,
+            endpoint_tests=endpoint_tests,
+            validation_timestamp=result.validation_timestamp,
+            overall_status=result.overall_status,
+            summary=summary
+        )
         
         return {
-            "filename": output_filename,
-            "discovered_params": len(discovered_params),
-            "missing_params": len(missing_params),
-            "message": f"Successfully updated spec with {len(missing_params)} new parameters"
+            "status": "success",
+            "validation_result": response.dict()
         }
         
-    except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": str(e)}
-        )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Runtime validation failed: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Internal server error: {str(e)}"}
+            content={"error": f"Runtime validation failed: {str(e)}"}
+        )
+
+@app.post("/discover-schema")
+async def discover_schema_endpoint(request: DiscoveryRequest):
+    """
+    Discover API schema from given URL.
+    
+    Args:
+        request: DiscoverRequest containing the target URL
+        
+    Returns:
+        JSON with discovered schema information
+    """
+    try:
+        logger.info(f"Starting schema discovery for URL: {request.url}")
+        
+        # Discover schema
+        schema_info, schema_url = crawl_for_schema(request.url)
+        
+        if schema_info:
+            return {
+                "status": "success",
+                "schema": schema_info,
+                "schema_url": schema_url,
+                "url": request.url
+            }
+        else:
+            return {
+                "status": "not_found",
+                "message": "No schema found at the given URL",
+                "url": request.url
+            }
+        
+    except Exception as e:
+        logger.error(f"Schema discovery failed: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Schema discovery failed: {str(e)}"}
+        )
+
+@app.post("/analyze-diff")
+async def analyze_diff_endpoint(
+    base_url: str,
+    new_url: str
+):
+    """
+    Perform differential analysis between two API endpoints.
+    
+    Args:
+        base_url: Base API endpoint URL
+        new_url: New API endpoint URL to compare
+        
+    Returns:
+        JSON with differential analysis results
+    """
+    try:
+        logger.info(f"Starting differential analysis between {base_url} and {new_url}")
+        
+        # Create differential engine
+        diff_engine = DifferentialEngine()
+        
+        # Perform analysis (this would need actual implementation)
+        # For now, return a placeholder response
+        return {
+            "status": "success",
+            "base_url": base_url,
+            "new_url": new_url,
+            "message": "Differential analysis functionality - needs implementation"
+        }
+        
+    except Exception as e:
+        logger.error(f"Differential analysis failed: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Differential analysis failed: {str(e)}"}
+        )
+
+# Schema Monitor Endpoints
+@app.get("/api/apis")
+async def get_apis():
+    """Get all registered APIs"""
+    try:
+        apis = ApiRegistry.get_all()
+        return {
+            "status": "success",
+            "apis": apis
+        }
+    except Exception as e:
+        logger.error(f"Failed to get APIs: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get APIs: {str(e)}"}
+        )
+
+@app.get("/api/apis/{api_id}/schemas")
+async def get_api_schemas(api_id: int):
+    """Get all schema versions for a specific API"""
+    try:
+        schemas = SchemaSnapshot.get_by_api(api_id)
+        return {
+            "status": "success",
+            "schemas": schemas
+        }
+    except Exception as e:
+        logger.error(f"Failed to get API schemas: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get API schemas: {str(e)}"}
+        )
+
+@app.get("/api/apis/{api_id}/schemas/latest")
+async def get_latest_schema(api_id: int):
+    """Get the latest schema version for a specific API"""
+    try:
+        schema = SchemaSnapshot.get_latest(api_id)
+        if not schema:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "No schemas found for this API"}
+            )
+        return {
+            "status": "success",
+            "schema": schema
+        }
+    except Exception as e:
+        logger.error(f"Failed to get latest schema: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get latest schema: {str(e)}"}
+        )
+
+@app.post("/api/apis/{api_id}/scan")
+async def scan_api_schema(api_id: int):
+    """Scan an API for schema changes and store new version if different"""
+    try:
+        # Get API details
+        api = ApiRegistry.get_by_id(api_id)
+        if not api:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "API not found"}
+            )
+        
+        # Get current schema
+        current_schema = SchemaSnapshot.get_latest(api_id)
+        
+        # Discover new schema
+        schema_info, schema_url = crawl_for_schema(api['base_url'])
+        
+        if not schema_info:
+            return {
+                "status": "no_schema",
+                "message": "No schema found at the given URL"
+            }
+        
+        # Compare with current schema if exists
+        if current_schema:
+            changes = compare_schemas(current_schema['schema_json'], schema_info)
+            if not changes:
+                return {
+                    "status": "unchanged",
+                    "message": "Schema has not changed",
+                    "schema": schema_info,
+                    "schema_url": schema_url
+                }
+        
+        # Generate PDF
+        schema_pdf = generate_pdf_from_json(schema_info)
+        
+        # Store new schema version
+        new_snapshot = SchemaSnapshot.create(
+            api_id=api_id,
+            schema_json=schema_info,
+            schema_pdf=schema_pdf
         )
         
-    finally:
-        # Clean up temporary files
-        if temp_spec_path and os.path.exists(temp_spec_path):
-            os.unlink(temp_spec_path)
-            logger.info(f"Cleaned up temporary spec file: {temp_spec_path}")
-            
-        if arjun_output_path and os.path.exists(arjun_output_path):
-            os.unlink(arjun_output_path)
-            logger.info(f"Cleaned up Arjun output file: {arjun_output_path}")
-
-# Serve output files for download
-@app.get("/outputs/{filename}")
-async def download_output(filename: str):
-    from fastapi.responses import FileResponse
-    file_path = f"outputs/{filename}"
-    
-    if not os.path.exists(file_path):
-        logger.warning(f"Download request for non-existent file: {file_path}")
+        return {
+            "status": "success",
+            "message": "New schema version stored",
+            "schema": schema_info,
+            "schema_url": schema_url,
+            "snapshot": new_snapshot
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to scan API schema: {str(e)}")
         return JSONResponse(
-            status_code=404,
-            content={"error": "File not found"}
+            status_code=500,
+            content={"error": f"Failed to scan API schema: {str(e)}"}
         )
-    
-    # Determine MIME type
-    if filename.endswith('.json'):
-        media_type = 'application/json'
-    elif filename.endswith('.yaml') or filename.endswith('.yml'):
-        media_type = 'application/x-yaml'
-    else:
-        media_type = 'application/octet-stream'
-    
-    logger.info(f"Serving file for download: {file_path}")
-    return FileResponse(
-        file_path, 
-        filename=filename,
-        media_type=media_type
-    )
 
-# Mount static files to serve frontend (but exclude API routes)
+@app.post("/api/apis")
+async def create_api(
+    name: str = Form(...),
+    base_url: str = Form(...),
+    description: Optional[str] = Form(None)
+):
+    """Create a new API entry for monitoring"""
+    try:
+        api = ApiRegistry.create(name=name, base_url=base_url, description=description)
+        return {
+            "status": "success",
+            "api": api
+        }
+    except Exception as e:
+        logger.error(f"Failed to create API: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to create API: {str(e)}"}
+        )
+
+@app.get("/api/schemas/{api_id}/compare/{version1}/{version2}")
+async def compare_schema_versions(api_id: int, version1: int, version2: int):
+    """Compare two schema versions"""
+    try:
+        schema1 = SchemaSnapshot.get_by_version(api_id, version1)
+        schema2 = SchemaSnapshot.get_by_version(api_id, version2)
+        
+        if not schema1 or not schema2:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "One or both schema versions not found"}
+            )
+        
+        changes = compare_schemas(schema1['schema_json'], schema2['schema_json'])
+        
+        return {
+            "status": "success",
+            "changes": changes,
+            "schema1": {
+                "version": version1,
+                "timestamp": schema1['timestamp']
+            },
+            "schema2": {
+                "version": version2,
+                "timestamp": schema2['timestamp']
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to compare schemas: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to compare schemas: {str(e)}"}
+        )
+
+@app.delete("/api/apis/{api_id}")
+async def delete_api(api_id: int):
+    """Delete an API and all its schema versions"""
+    try:
+        # Check if API exists
+        api = ApiRegistry.get_by_id(api_id)
+        if not api:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "API not found"}
+            )
+        
+        # Delete API (cascade will delete schema snapshots)
+        success = ApiRegistry.delete(api_id)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "API and all schema versions deleted successfully"
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to delete API"}
+            )
+        
+    except Exception as e:
+        logger.error(f"Failed to delete API: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to delete API: {str(e)}"}
+        )
+
+# Mount static files to serve frontend
 app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -2,14 +2,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-class CanonicalParameter(BaseModel):
-    name: str
-    in_: str  # query, path, header
-    type_: str  # string, integer, etc.
-    required: bool = False
-    description: Optional[str] = None
-    example: Optional[str] = None
-
 
 class RuntimeValidationRequest(BaseModel):
     base_url: str
@@ -23,7 +15,7 @@ class EndpointTestResult(BaseModel):
     expected_status: Optional[int] = None
     actual_status: Optional[int] = None
     expected_response_schema: Optional[Dict] = None
-    actual_response: Optional[Dict] = None
+    actual_response: Optional[Any] = None
     response_time_ms: Optional[float] = None
     error: Optional[str] = None
     status_mismatch: bool = False

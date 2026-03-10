@@ -1,11 +1,10 @@
 """
-Fingerprinting module for REST Parameter Discovery v2.
+Fingerprinting module for API response analysis.
 
-This module provides framework detection, content type identification,
-endpoint classification, and response fingerprinting capabilities.
+This module provides response fingerprinting and comparison capabilities
+for differential analysis between API endpoints.
 """
 
-from .framework_detector import FrameworkDetector
 from .response_fingerprint import (
     ResponseFingerprint,
     FingerprintDiff,
@@ -18,7 +17,6 @@ from .response_fingerprint import (
 )
 
 __all__ = [
-    'FrameworkDetector',
     'ResponseFingerprint',
     'FingerprintDiff',
     'create_fingerprint',

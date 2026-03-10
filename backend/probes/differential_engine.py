@@ -7,15 +7,12 @@ parameter candidates through systematic fingerprint comparison.
 
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
-from ..models import DiscoveryRequest, DiscoveryContext
-from ..transport import TransportClientInterface
-from ..fingerprint import (
+from models import DiscoveryRequest, DiscoveryContext
+from fingerprint import (
     ResponseFingerprint,
     FingerprintDiff,
     create_fingerprint,
-    compare_fingerprints,
-    extract_error_patterns_from_fingerprint,
-    calculate_fingerprint_confidence
+    compare_fingerprints
 )
 from .strategies import ProbeStrategy, StringProbe, NumericProbe, BooleanProbe
 
@@ -83,7 +80,7 @@ by analyzing response changes across different payload variations.
             return []
         
         # Step 2: Generate candidate parameters
-        candidate_names = await self._generate_candidate_names(baseline_fingerprint)
+        candidate_names = await self._generate_candidate_names(request, baseline_fingerprint)
         
         # Step 3: Test each candidate systematically
         results = []
@@ -129,11 +126,12 @@ by analyzing response changes across different payload variations.
             print(f"   Baseline capture failed: {str(e)}")
             return None
     
-    async def _generate_candidate_names(self, baseline_fingerprint: ResponseFingerprint) -> List[str]:
+    async def _generate_candidate_names(self, request: DiscoveryRequest, baseline_fingerprint: ResponseFingerprint) -> List[str]:
         """
-        Generate candidate parameter names from baseline fingerprint.
+        Generate candidate parameter names from baseline fingerprint and request.
         
         Args:
+            request: Discovery request containing seed_body
             baseline_fingerprint: Baseline response fingerprint
             
         Returns:
@@ -158,8 +156,8 @@ by analyzing response changes across different payload variations.
             matches = param_pattern.findall(body_text)
             candidates.extend(matches)
 
-            # Pattern: "field X cannot be null/empty"
-            field_pattern = re.compile(r"field\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
+            # Pattern: "field" in JSON - capture the VALUE after the colon (not :)
+            field_pattern = re.compile(r'"field"\s*:\s*"([^"]+)"', re.IGNORECASE)
             matches = field_pattern.findall(body_text)
             candidates.extend(matches)
 
@@ -182,6 +180,11 @@ by analyzing response changes across different payload variations.
             json_param_pattern = re.compile(r'"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:', re.IGNORECASE)
             matches = json_param_pattern.findall(body_text)
             candidates.extend(matches)
+
+        # Use seed_body keys as candidates if provided
+        if request.seed_body:
+            seed_keys = list(request.seed_body.keys())
+            candidates.extend(seed_keys)
 
         # Remove duplicates and limit candidates
         unique_candidates = list(dict.fromkeys(candidates))  # preserve order, remove duplicates

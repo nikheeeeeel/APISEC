@@ -1,42 +1,27 @@
 """
-Probe strategies for REST Parameter Discovery v2.
+Differential analysis probes for API parameter discovery.
 
-This module provides modular probe implementations with common interfaces
-for different parameter discovery strategies.
+This module provides probe strategies for systematic parameter discovery
+through differential analysis.
 """
 
-from .base_probe import (
-    ProbeInterface,
-    BaseProbe,
-    ProbeCapability,
-    ProbeFactory
+from .differential_engine import (
+    DifferentialEngine,
+    ParameterCandidate
 )
 
 from .strategies import (
     ProbeStrategy,
     StringProbe,
     NumericProbe,
-    BooleanProbe,
-    ArrayProbe,
-    ObjectProbe,
-    BoundaryProbe,
-    NullProbe
+    BooleanProbe
 )
 
 __all__ = [
-    # Core interfaces
-    'ProbeInterface',
-    'BaseProbe', 
-    'ProbeCapability',
-    'ProbeFactory',
-    
-    # Strategy implementations
+    'DifferentialEngine',
+    'ParameterCandidate',
     'ProbeStrategy',
     'StringProbe',
     'NumericProbe',
-    'BooleanProbe',
-    'ArrayProbe',
-    'ObjectProbe',
-    'BoundaryProbe',
-    'NullProbe'
+    'BooleanProbe'
 ]
