@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 import logging
 from pydantic import BaseModel
 from typing import Optional
-from schema_monitor import crawl_for_schema, generate_pdf_from_json, compare_schemas
+from schema_monitor import crawl_for_schema, generate_pdf_from_json, compare_schemas, compare_schemas_structured
 from probes.differential_engine import DifferentialEngine
 from fingerprint import create_fingerprint, compare_fingerprints
 from runtime_validator import create_runtime_validator
@@ -258,9 +258,6 @@ async def scan_api_schema(api_id: int):
                 content={"error": "API not found"}
             )
         
-        # Get current schema
-        current_schema = SchemaSnapshot.get_latest(api_id)
-        
         # Discover new schema
         schema_info, schema_url = crawl_for_schema(api['base_url'])
         
@@ -270,33 +267,29 @@ async def scan_api_schema(api_id: int):
                 "message": "No schema found at the given URL"
             }
         
-        # Compare with current schema if exists
-        if current_schema:
-            changes = compare_schemas(current_schema['schema_json'], schema_info)
-            if not changes:
-                return {
-                    "status": "unchanged",
-                    "message": "Schema has not changed",
-                    "schema": schema_info,
-                    "schema_url": schema_url
-                }
+        # Use the new duplicate detection method
+        result = SchemaSnapshot.create_if_different(api_id, schema_info)
         
-        # Generate PDF
+        if result['status'] == 'unchanged':
+            return {
+                "status": "unchanged",
+                "message": "Schema has not changed",
+                "schema": result['schema']['schema_json'],
+                "schema_url": schema_url
+            }
+        
+        # Generate PDF for new schema
         schema_pdf = generate_pdf_from_json(schema_info)
         
-        # Store new schema version
-        new_snapshot = SchemaSnapshot.create(
-            api_id=api_id,
-            schema_json=schema_info,
-            schema_pdf=schema_pdf
-        )
+        # Update the result with PDF
+        SchemaSnapshot.update_pdf(result['id'], schema_pdf)
         
         return {
             "status": "success",
             "message": "New schema version stored",
             "schema": schema_info,
             "schema_url": schema_url,
-            "snapshot": new_snapshot
+            "snapshot": result
         }
         
     except Exception as e:
@@ -314,6 +307,15 @@ async def create_api(
 ):
     """Create a new API entry for monitoring"""
     try:
+        # Check if API with this URL already exists
+        existing_api = ApiRegistry.get_by_url(base_url)
+        if existing_api:
+            return {
+                "status": "exists",
+                "message": "API with this URL already exists",
+                "api": existing_api
+            }
+        
         api = ApiRegistry.create(name=name, base_url=base_url, description=description)
         return {
             "status": "success",
@@ -327,7 +329,7 @@ async def create_api(
         )
 
 @app.get("/api/schemas/{api_id}/compare/{version1}/{version2}")
-async def compare_schema_versions(api_id: int, version1: int, version2: int):
+async def compare_schema_versions(api_id: int, version1: int, version2: int, structured: bool = False):
     """Compare two schema versions"""
     try:
         schema1 = SchemaSnapshot.get_by_version(api_id, version1)
@@ -339,26 +341,64 @@ async def compare_schema_versions(api_id: int, version1: int, version2: int):
                 content={"error": "One or both schema versions not found"}
             )
         
-        changes = compare_schemas(schema1['schema_json'], schema2['schema_json'])
-        
-        return {
-            "status": "success",
-            "changes": changes,
-            "schema1": {
-                "version": version1,
-                "timestamp": schema1['timestamp']
-            },
-            "schema2": {
-                "version": version2,
-                "timestamp": schema2['timestamp']
+        if structured:
+            # Use new structured format with summary
+            result = compare_schemas_structured(schema1['schema_json'], schema2['schema_json'])
+            return {
+                "status": "success",
+                "summary": result["summary"],
+                "changes": result["changes"],
+                "schema1": {
+                    "version": version1,
+                    "timestamp": schema1['timestamp']
+                },
+                "schema2": {
+                    "version": version2,
+                    "timestamp": schema2['timestamp']
+                }
             }
-        }
+        else:
+            # Use original format for backward compatibility
+            changes = compare_schemas(schema1['schema_json'], schema2['schema_json'])
+            return {
+                "status": "success",
+                "changes": changes,
+                "schema1": {
+                    "version": version1,
+                    "timestamp": schema1['timestamp']
+                },
+                "schema2": {
+                    "version": version2,
+                    "timestamp": schema2['timestamp']
+                }
+            }
         
     except Exception as e:
         logger.error(f"Failed to compare schemas: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to compare schemas: {str(e)}"}
+        )
+
+@app.get("/api/schemas/{api_id}/version/{version}")
+async def get_schema_version(api_id: int, version: int):
+    """Get a specific schema version for detailed comparison"""
+    try:
+        schema = SchemaSnapshot.get_by_version(api_id, version)
+        if not schema:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Schema version not found"}
+            )
+        return {
+            "status": "success",
+            "schema": schema
+        }
+    except Exception as e:
+        logger.error(f"Failed to get schema version: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get schema version: {str(e)}"}
         )
 
 @app.delete("/api/apis/{api_id}")
@@ -395,7 +435,7 @@ async def delete_api(api_id: int):
         )
 
 # Mount static files to serve frontend
-app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
+# app.mount("/", StaticFiles(directory="../frontend/dist", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

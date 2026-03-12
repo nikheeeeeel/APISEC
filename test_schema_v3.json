@@ -1,0 +1,98 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Test API v3",
+    "version": "3.0.0",
+    "description": "Test API for schema diffing - with enum and default changes"
+  },
+  "paths": {
+    "/users": {
+      "get": {
+        "summary": "Get users with pagination",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Number of users to return (now string type)"
+          },
+          {
+            "name": "offset",
+            "in": "query", 
+            "required": false,
+            "type": "integer",
+            "description": "Number of users to skip - updated description"
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": ["active", "inactive", "suspended"],
+            "default": "active",
+            "description": "New filter parameter with enum and default"
+          },
+          {
+            "name": "sort",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "enum": ["name", "email", "created_at"],
+            "description": "New header parameter with enum"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response - updated",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "integer"},
+                  "name": {"type": "string"},
+                  "email": {"type": "string"},
+                  "age": {"type": "integer"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create user with validation",
+        "parameters": [
+          {
+            "name": "user_data",
+            "in": "body",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "email": {"type": "string"},
+                "phone": {"type": "string"}
+              },
+              "required": ["name"]
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "User created successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+                "email": {"type": "string"},
+                "phone": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

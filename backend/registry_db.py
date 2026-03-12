@@ -74,6 +74,16 @@ class ApiRegistry:
         return [dict(row) for row in rows]
     
     @staticmethod
+    def get_by_url(base_url: str) -> Optional[Dict[str, Any]]:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM apis WHERE base_url = ?', (base_url,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    
+    @staticmethod
     def get_by_id(api_id: int) -> Optional[Dict[str, Any]]:
         conn = get_db()
         cursor = conn.cursor()
@@ -138,6 +148,47 @@ class SchemaSnapshot:
             'schema_pdf': schema_pdf,
             'timestamp': timestamp
         }
+    
+    @staticmethod
+    def schema_exists(api_id: int, schema_json: Dict[str, Any]) -> bool:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        schema_json_str = json.dumps(schema_json)
+        cursor.execute(
+            'SELECT COUNT(*) FROM schema_snapshots WHERE api_id = ? AND schema_json = ?',
+            (api_id, schema_json_str)
+        )
+        count = cursor.fetchone()[0]
+        conn.close()
+        
+        return count > 0
+    
+    @staticmethod
+    def create_if_different(api_id: int, schema_json: Dict[str, Any], schema_pdf: Optional[str] = None) -> Dict[str, Any]:
+        # Check if schema already exists
+        if SchemaSnapshot.schema_exists(api_id, schema_json):
+            return {
+                'status': 'unchanged',
+                'message': 'Schema has not changed',
+                'schema': SchemaSnapshot.get_latest(api_id)
+            }
+        
+        # Create new schema if different
+        return SchemaSnapshot.create(api_id, schema_json, schema_pdf)
+    
+    @staticmethod
+    def update_pdf(snapshot_id: int, schema_pdf: str) -> bool:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE schema_snapshots SET schema_pdf = ? WHERE id = ?',
+            (schema_pdf, snapshot_id)
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return updated
     
     @staticmethod
     def get_by_api(api_id: int) -> List[Dict[str, Any]]:
