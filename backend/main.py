@@ -6,6 +6,7 @@ import logging
 from pydantic import BaseModel
 from typing import Optional
 from schema_monitor import crawl_for_schema, generate_pdf_from_json, compare_schemas, compare_schemas_structured
+from ai_analyzer import analyze_single_change
 from probes.differential_engine import DifferentialEngine
 from fingerprint import create_fingerprint, compare_fingerprints
 from runtime_validator import create_runtime_validator
@@ -21,6 +22,13 @@ import os
 
 # Add current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Configure logging
 logging.basicConfig(
@@ -344,10 +352,12 @@ async def compare_schema_versions(api_id: int, version1: int, version2: int, str
         if structured:
             # Use new structured format with summary
             result = compare_schemas_structured(schema1['schema_json'], schema2['schema_json'])
+            
             return {
                 "status": "success",
                 "summary": result["summary"],
                 "changes": result["changes"],
+                "ai_enabled": False,
                 "schema1": {
                     "version": version1,
                     "timestamp": schema1['timestamp']
@@ -378,6 +388,47 @@ async def compare_schema_versions(api_id: int, version1: int, version2: int, str
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to compare schemas: {str(e)}"}
+        )
+
+@app.post("/api/schemas/{api_id}/analyze-change")
+async def analyze_specific_change(api_id: int, request: dict):
+    """Generate detailed AI analysis for a specific schema change."""
+    version1 = request.get("version1")
+    version2 = request.get("version2")
+    change = request.get("change")
+
+    if not all([version1, version2, change]):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing required fields: version1, version2, change"}
+        )
+
+    try:
+        schema1 = SchemaSnapshot.get_by_version(api_id, version1)
+        schema2 = SchemaSnapshot.get_by_version(api_id, version2)
+
+        if not schema1 or not schema2:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "One or both schema versions not found"}
+            )
+            
+        enriched_change = await analyze_single_change(
+            change,
+            schema1['schema_json'],
+            schema2['schema_json']
+        )
+        
+        return {
+            "status": "success",
+            "analysis": enriched_change.get("detailed_analysis", "No analysis returned")
+        }
+            
+    except Exception as e:
+        logger.error(f"Failed to analyze specific change: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to analyze change: {str(e)}"}
         )
 
 @app.get("/api/schemas/{api_id}/version/{version}")

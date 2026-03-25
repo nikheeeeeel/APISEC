@@ -127,12 +127,13 @@ def _resolve_refs(schema: Dict[str, Any], root_schema: Dict[str, Any], visited: 
             ref_path = schema['$ref']
             if ref_path in visited:
                 return {}  # Prevent infinite recursion
-            visited.add(ref_path)
+            # Copy visited set per branch to support diamond-shaped refs
+            branch_visited = visited | {ref_path}
             
             # Resolve the reference
             resolved = _resolve_reference_path(ref_path, root_schema)
             if resolved:
-                return _resolve_refs(resolved, root_schema, visited)
+                return _resolve_refs(resolved, root_schema, branch_visited)
             else:
                 return schema
         
@@ -1578,7 +1579,7 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
     except Exception as e:
         # Fallback to original schemas if normalization fails
         old_normalized = old_schema
-        new_normalized = new_normalized
+        new_normalized = new_schema
         print(f"Schema normalization failed: {e}")
     
     def deep_compare(obj1, obj2, path="", current_path=""):
@@ -1622,7 +1623,7 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
             for key in obj1:
                 if key in obj2:
                     new_path = f"{current_path}/{key}" if current_path else key
-                    value_diffs = deep_compare(obj1[key], obj2[key], new_path, key)
+                    value_diffs = deep_compare(obj1[key], obj2[key], new_path, new_path)
                     differences.extend(value_diffs)
         
         elif isinstance(obj1, list) and isinstance(obj2, list):
@@ -1722,21 +1723,24 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
             'type': 'modified',
             'category': 'authentication',
             'severity': 'critical',
-            'details': 'Authentication requirements added to API'
+            'details': 'Authentication requirements added to API',
+            'path': 'security'
         })
     elif old_security and not new_security:
         changes.append({
             'type': 'modified',
             'category': 'authentication',
             'severity': 'critical',
-            'details': 'Authentication requirements removed from API'
+            'details': 'Authentication requirements removed from API',
+            'path': 'security'
         })
     elif old_security != new_security:
         changes.append({
             'type': 'modified',
             'category': 'authentication',
             'severity': 'high',
-            'details': 'Authentication configuration changed'
+            'details': 'Authentication configuration changed',
+            'path': 'security'
         })
     
     # Combine all changes

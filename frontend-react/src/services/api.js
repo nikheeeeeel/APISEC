@@ -87,6 +87,13 @@ class ApiService {
     return this.request(`${API_BASE_URL}/api/schemas/${apiId}/compare/${version1}/${version2}?structured=${structured}`);
   }
 
+  static async analyzeChange(apiId, version1, version2, change) {
+    return this.request(`${API_BASE_URL}/api/schemas/${apiId}/analyze-change`, {
+      method: 'POST',
+      body: JSON.stringify({ version1, version2, change })
+    });
+  }
+
   // Schema discovery endpoint
   static async discoverSchema(url) {
     return this.request(`${API_BASE_URL}/discover-schema`, {

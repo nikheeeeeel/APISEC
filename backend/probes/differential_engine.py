@@ -5,16 +5,23 @@ Provides stateless, reusable differential analysis for identifying
 parameter candidates through systematic fingerprint comparison.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Protocol, runtime_checkable
 from dataclasses import dataclass
 from models import DiscoveryRequest, DiscoveryContext
 from fingerprint import (
     ResponseFingerprint,
     FingerprintDiff,
     create_fingerprint,
-    compare_fingerprints
+    compare_fingerprints,
+    extract_error_patterns_from_fingerprint
 )
 from .strategies import ProbeStrategy, StringProbe, NumericProbe, BooleanProbe
+
+
+@runtime_checkable
+class TransportClientInterface(Protocol):
+    """Protocol for HTTP transport clients used by the differential engine."""
+    async def send(self, request: Any, payload: Dict[str, Any], location: str) -> Any: ...
 
 
 @dataclass
@@ -45,8 +52,8 @@ by analyzing response changes across different payload variations.
     
     def __init__(
         self,
-        transport_client: TransportClientInterface,
-        probe_strategies: List[ProbeStrategy],
+        transport_client: Optional[TransportClientInterface] = None,
+        probe_strategies: Optional[List[ProbeStrategy]] = None,
         max_candidates_per_parameter: int = 10
     ):
         """
@@ -325,7 +332,7 @@ by analyzing response changes across different payload variations.
 
 # Factory function for creating differential engine
 def create_differential_engine(
-    transport_client: TransportClientInterface,
+    transport_client: Optional[TransportClientInterface] = None,
     probe_strategies: Optional[List[ProbeStrategy]] = None
 ) -> DifferentialEngine:
     """

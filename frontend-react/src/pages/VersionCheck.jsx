@@ -1,6 +1,40 @@
 import { useState, useEffect } from 'react';
-import { GitCompare, RefreshCw, Download, ChevronDown, Plus, Minus, FileText, Clock, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
+import { GitCompare, RefreshCw, Download, ChevronDown, Plus, Minus, FileText, Clock, AlertCircle, CheckCircle, Trash2, Sparkles, Lightbulb, Shield, ChevronRight, Search, Zap, Bot } from 'lucide-react';
 import ApiService from '../services/api';
+
+const formatAnalysisText = (text) => {
+  if (!text) return null;
+  const blocks = text.split('```');
+  return blocks.map((block, index) => {
+    if (index % 2 === 1) {
+      const lines = block.split('\n');
+      const code = lines.slice(1).join('\n');
+      return (
+        <pre key={index} className="bg-slate-900 p-3 rounded-md my-2 overflow-x-auto text-xs font-mono text-gray-300 border border-slate-800">
+          <code>{code}</code>
+        </pre>
+      );
+    }
+    const paragraphs = block.split('\n\n').filter(p => p.trim());
+    return (
+      <div key={index} className="space-y-2 mt-2">
+        {paragraphs.map((p, pIndex) => {
+          const parts = p.split(/(\*\*.*?\*\*)/g);
+          return (
+            <p key={pIndex} className="text-sm text-gray-300 leading-relaxed">
+              {parts.map((part, i) => {
+                if (part.startsWith('**') && part.endsWith('**')) {
+                  return <strong key={i} className="text-purple-300 font-semibold">{part.slice(2, -2)}</strong>;
+                }
+                return part;
+              })}
+            </p>
+          );
+        })}
+      </div>
+    );
+  });
+};
 
 const VersionCheck = () => {
   const [apis, setApis] = useState([]);
@@ -8,11 +42,49 @@ const VersionCheck = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [comparison, setComparison] = useState(null);
   const [selectedVersions, setSelectedVersions] = useState({ current: '', new: '' });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [analyzingIndex, setAnalyzingIndex] = useState(null);
+  const [changeFilter, setChangeFilter] = useState('all');
 
   // Debug logging
   console.log('VersionCheck render - selectedApi:', selectedApi);
   console.log('VersionCheck render - comparison:', comparison);
   console.log('VersionCheck render - selectedVersions:', selectedVersions);
+
+  const handleAnalyzeSpecificChange = async (index, change) => {
+    if (!selectedApi) return;
+    
+    setAnalyzingIndex(index);
+    try {
+      const response = await ApiService.analyzeChange(
+        selectedApi.id,
+        parseInt(selectedVersions.current),
+        parseInt(selectedVersions.new),
+        change
+      );
+      
+      if (response.status === 'success') {
+        const newComparison = { ...comparison };
+        newComparison.changes[index].detailedAnalysis = response.analysis;
+        setComparison(newComparison);
+      } else {
+        throw new Error(response.error || 'Failed to analyze change');
+      }
+    } catch (error) {
+      console.error('Analysis error:', error);
+      const newComparison = { ...comparison };
+      newComparison.changes[index].detailedAnalysis = 'Error: ' + error.message;
+      setComparison(newComparison);
+    } finally {
+      setAnalyzingIndex(null);
+    }
+  };
+
+  const filteredChanges = comparison?.changes?.filter(change => 
+    (changeFilter === 'all' || change.type === changeFilter) &&
+    ((change.path && change.path.toLowerCase().includes(searchTerm.toLowerCase())) || 
+    (change.description && change.description.toLowerCase().includes(searchTerm.toLowerCase())))
+  ) || [];
 
   useEffect(() => {
     const loadApis = async () => {
@@ -246,12 +318,16 @@ const VersionCheck = () => {
             modified: modifiedCount,
             total: changes.length
           },
+          aiEnabled: response.ai_enabled || false,
           changes: changes.map(change => ({
             type: change.type || 'unknown',
             path: change.path || '',
             description: change.details || change.description || 'No description',
             impact: change.breaking_change === 'breaking' ? 'high' : 
-                   change.breaking_change === 'non_breaking' ? 'low' : 'medium'
+                   change.breaking_change === 'non_breaking' ? 'low' : 'medium',
+            aiDescription: change.ai_description || null,
+            aiImpactAnalysis: change.ai_impact_analysis || null,
+            aiFixSuggestion: change.ai_fix_suggestion || null
           }))
         });
       } else {
@@ -315,12 +391,16 @@ const VersionCheck = () => {
               modified: modifiedCount,
               total: changes.length
             },
+            aiEnabled: response.ai_enabled || false,
             changes: changes.map(change => ({
               type: change.type || 'unknown',
               path: change.path || '',
               description: change.details || change.description || 'No description',
               impact: change.breaking_change === 'breaking' ? 'high' : 
-                     change.breaking_change === 'non_breaking' ? 'low' : 'medium'
+                     change.breaking_change === 'non_breaking' ? 'low' : 'medium',
+              aiDescription: change.ai_description || null,
+              aiImpactAnalysis: change.ai_impact_analysis || null,
+              aiFixSuggestion: change.ai_fix_suggestion || null
             }))
           };
           
@@ -331,6 +411,7 @@ const VersionCheck = () => {
             new: latestVersion.toString()
           });
           
+          setChangeFilter('all');
           setComparison(comparisonData);
         } else {
           throw new Error(response.error || 'Failed to compare schema versions');
@@ -498,6 +579,7 @@ const VersionCheck = () => {
                 onClick={() => {
                   setComparison(null);
                   setSelectedApi(null);
+                  setChangeFilter('all');
                 }}
                 className="text-gray-400 hover:text-white"
               >
@@ -618,19 +700,31 @@ const VersionCheck = () => {
             {/* Summary Stats */}
             {comparison && comparison.summary.total > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-slate-900/50 p-4 rounded-lg text-center">
+                <div 
+                  className={`bg-slate-900/50 p-4 rounded-lg text-center cursor-pointer transition-all ${changeFilter === 'all' ? 'ring-2 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.3)]' : 'hover:bg-slate-800/50 hover:shadow-md'}`}
+                  onClick={() => setChangeFilter('all')}
+                >
                   <div className="text-2xl font-bold text-white mb-1">{comparison.summary.total}</div>
                   <div className="text-xs text-gray-400">Total Changes</div>
                 </div>
-                <div className="bg-slate-900/50 p-4 rounded-lg text-center">
+                <div 
+                  className={`bg-slate-900/50 p-4 rounded-lg text-center cursor-pointer transition-all ${changeFilter === 'added' ? 'ring-2 ring-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'hover:bg-slate-800/50 hover:shadow-md'}`}
+                  onClick={() => setChangeFilter('added')}
+                >
                   <div className="text-2xl font-bold text-green-500 mb-1">{comparison.summary.added}</div>
                   <div className="text-xs text-gray-400">Added</div>
                 </div>
-                <div className="bg-slate-900/50 p-4 rounded-lg text-center">
+                <div 
+                  className={`bg-slate-900/50 p-4 rounded-lg text-center cursor-pointer transition-all ${changeFilter === 'removed' ? 'ring-2 ring-red-400 shadow-[0_0_15px_rgba(248,113,113,0.3)]' : 'hover:bg-slate-800/50 hover:shadow-md'}`}
+                  onClick={() => setChangeFilter('removed')}
+                >
                   <div className="text-2xl font-bold text-red-400 mb-1">{comparison.summary.removed}</div>
                   <div className="text-xs text-gray-400">Removed</div>
                 </div>
-                <div className="bg-slate-900/50 p-4 rounded-lg text-center">
+                <div 
+                  className={`bg-slate-900/50 p-4 rounded-lg text-center cursor-pointer transition-all ${changeFilter === 'modified' ? 'ring-2 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'hover:bg-slate-800/50 hover:shadow-md'}`}
+                  onClick={() => setChangeFilter('modified')}
+                >
                   <div className="text-2xl font-bold text-yellow-400 mb-1">{comparison.summary.modified}</div>
                   <div className="text-xs text-gray-400">Modified</div>
                 </div>
@@ -640,10 +734,40 @@ const VersionCheck = () => {
             {/* Changes List */}
             {comparison && comparison.summary.total > 0 && (
               <div>
-                <h3 className="text-lg font-semibold text-white mb-4">Changes Detected</h3>
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
+                  <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+                    <span>Changes Detected</span>
+                    {comparison.aiEnabled && (
+                      <span className="flex items-center space-x-1 text-xs font-medium text-purple-400 bg-purple-400/10 px-2 py-1 rounded-full">
+                        <Sparkles className="w-3 h-3" />
+                        <span>AI Analyzed</span>
+                      </span>
+                    )}
+                  </h3>
+                  
+                  {/* Search input */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search changes..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-9 pr-4 py-2 bg-slate-900/50 border border-slate-700/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:bg-slate-800 transition-all w-full md:w-64"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-3">
-                  {comparison.changes.map((change, index) => (
-                    <div key={index} className="bg-slate-900/50 p-4 rounded-lg">
+                  {filteredChanges.length === 0 ? (
+                    <div className="text-gray-400 text-center py-8 bg-slate-900/30 rounded-lg border border-slate-800/50 border-dashed flex flex-col items-center">
+                      <Search className="w-8 h-8 text-gray-600 mb-3" />
+                      <span>No changes match your search.</span>
+                    </div>
+                  ) : (
+                    filteredChanges.map((change) => {
+                      const originalIndex = comparison.changes.indexOf(change);
+                      return (
+                    <div key={originalIndex} className="bg-slate-900/50 p-4 rounded-lg">
                       <div className="flex items-start space-x-3">
                         <div className="mt-1">
                           {getChangeIcon(change.type)}
@@ -656,8 +780,73 @@ const VersionCheck = () => {
                             <code className="text-xs text-gray-400 bg-slate-800/50 px-2 py-1 rounded">
                               {change.path}
                             </code>
+                            <div className="ml-auto flex items-center">
+                                <button
+                                  onClick={() => handleAnalyzeSpecificChange(originalIndex, change)}
+                                  disabled={analyzingIndex === originalIndex}
+                                  className="text-xs flex items-center space-x-1.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 px-3 py-1.5 rounded-md border border-purple-500/30 transition-colors disabled:opacity-50 font-medium"
+                                >
+                                  {analyzingIndex === originalIndex ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Zap className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Analyze</span>
+                                </button>
+                            </div>
                           </div>
                           <p className="text-sm text-gray-300">{change.description}</p>
+                          
+                          {/* Deep Analysis Expandable Block */}
+                          {change.detailedAnalysis && (
+                            <div className="mt-4 bg-slate-950/80 rounded-lg p-5 border border-purple-500/30 shadow-inner">
+                              <div className="flex items-center space-x-2 mb-3 border-b border-purple-500/20 pb-2">
+                                <Bot className="w-5 h-5 text-purple-400" />
+                                <h4 className="text-sm font-semibold text-purple-300 tracking-wide">AI Developer Analysis</h4>
+                              </div>
+                              <div className="text-gray-300">
+                                {formatAnalysisText(change.detailedAnalysis)}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* AI Description */}
+                          {change.aiDescription && (
+                            <div className="mt-3 bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
+                              <div className="flex items-start space-x-2">
+                                <Sparkles className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-xs font-medium text-purple-400 mb-1">AI Analysis</p>
+                                  <p className="text-sm text-gray-300 leading-relaxed">{change.aiDescription}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* AI Impact Analysis */}
+                          {change.aiImpactAnalysis && (
+                            <div className="mt-2 flex items-start space-x-2 bg-slate-800/40 rounded-md p-2">
+                              <Shield className="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0" />
+                              <p className="text-xs text-blue-300">
+                                <span className="font-medium text-blue-400">Impact: </span>
+                                {change.aiImpactAnalysis}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* AI Fix Suggestion (only for breaking changes) */}
+                          {change.aiFixSuggestion && (
+                            <div className="mt-2 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                              <div className="flex items-start space-x-2">
+                                <Lightbulb className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-xs font-medium text-amber-400 mb-1">How to Fix</p>
+                                  <p className="text-sm text-amber-200/80 leading-relaxed">{change.aiFixSuggestion}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
                           {change.impact && (
                             <div className="mt-2">
                               <span className={`text-xs px-2 py-1 rounded-full ${getImpactColor(change.impact)}`}>
@@ -668,7 +857,9 @@ const VersionCheck = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                      );
+                    })
+                  )}
                 </div>
               </div>
             )}
