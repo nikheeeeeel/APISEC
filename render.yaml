@@ -1,0 +1,60 @@
+services:
+  # Backend API
+  - type: web
+    name: apisec-backend
+    env: python
+    rootDir: backend
+    plan: free # Change to 'starter' if more resources are needed
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health # Health check endpoint
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.x # specify Python version to use
+      - key: DB_HOST
+        fromDatabase:
+          name: apisec-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: apisec-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: apisec-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: apisec-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: apisec-db
+          property: database
+      # Make sure to set your Gemini API key in the Render Dashboard
+      - key: GEMINI_API_KEY
+        sync: false
+
+  # Frontend React App  
+  - type: web
+    name: apisec-frontend
+    env: static
+    rootDir: frontend-react
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: 22.x # specify Node version to use (Vite 7.3+ requires 20.19+ or 22.12+)
+      # Vite API URL - update this if your backend name or domain changes
+      # Note: Render static sites do not support dynamic fromService interpolation 
+      # with 'https://' prefix natively, so we hardcode the predictable render URL 
+      # or you can set this manually in the dashboard.
+      - key: VITE_API_URL
+        value: https://apisec-backend.onrender.com
+
+databases:
+  # PostgreSQL Database
+  - name: apisec-db
+    databaseName: apisec
+    user: postgres
+    plan: free # Change to 'starter' if more resources are needed

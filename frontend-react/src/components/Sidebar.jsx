@@ -15,7 +15,7 @@ const menuItems = [
   { path: '/version-check', label: 'Version Check', icon: GitCompare },
 ];
 
-const Sidebar = () => {
+const Sidebar = ({ onLogout }) => {
   const location = useLocation();
 
   return (
@@ -78,6 +78,13 @@ const Sidebar = () => {
           </div>
           <ConnectionStatus />
         </div>
+        
+        <button 
+          onClick={onLogout}
+          className="w-full flex items-center justify-center space-x-2 px-4 py-2 mt-4 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/20"
+        >
+          <span className="font-medium text-sm">Logout</span>
+        </button>
       </div>
     </div>
   );

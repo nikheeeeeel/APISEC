@@ -19,8 +19,22 @@ websockets>=12.0
 # URL Parsing
 yarl>=1.9.0
 
-# Production Server
-gunicorn>=21.2.0
+# Database Requirements
+psycopg2-binary>=2.9.9
+
+# Auth Requirements
+passlib[bcrypt]>=1.7.4
+bcrypt<4.0.0
+python-jose[cryptography]>=3.3.0
+python-multipart>=0.0.6
+
+# Development & Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# AI Analysis
+google-generativeai>=0.4.0
+python-dotenv>=1.0.0
 
 # Additional Utilities
 annotated-types>=0.6.0

@@ -294,7 +294,7 @@ by analyzing response changes across different payload variations.
         Returns:
             Discovery context for testing
         """
-        from ..models import DiscoveryContext
+        from models import DiscoveryContext
         
         discovered = {candidate_name: {"type": "string", "required": False}} if candidate_name else {}
         return DiscoveryContext(

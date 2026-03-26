@@ -93,7 +93,7 @@ Open your browser and navigate to `http://localhost:8000`
 
 ## Database
 
-The application uses SQLite (`apisec.db`) for storing schema snapshots and version history. The database is created automatically on first run.
+The application uses PostgreSQL for storing schema snapshots and version history. Database connections and authentication are managed using psycopg2 and JWTs respectively.
 
 ## Development
 

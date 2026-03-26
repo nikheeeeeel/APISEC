@@ -1,14 +1,39 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: userpassword
+      POSTGRES_DB: apisec
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d apisec"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   apisec:
     build: .
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=user
+      - DB_PASSWORD=userpassword
+      - DB_NAME=apisec
     volumes:
-      - ./data:/app/data  # For database persistence
+      - ./backend:/app/backend  # Mount code for local dev
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -28,3 +53,6 @@ services:
     depends_on:
       - apisec
     restart: unless-stopped
+
+volumes:
+  postgres_data:

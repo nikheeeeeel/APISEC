@@ -16,17 +16,12 @@ from .models import (
     ConfidenceScore
 )
 
-# Schema monitoring
-from .schema_monitor import (
-    discover_schema,
-    monitor_schema_changes,
-    generate_pdf_from_json
-)
+
 
 # Database operations
 from .registry_db import (
     SchemaSnapshot,
-    APIMetadata
+    ApiRegistry
 )
 
 # Fingerprinting and diffing
@@ -52,14 +47,11 @@ __all__ = [
     'DetectionResult',
     'ConfidenceScore',
     
-    # Schema monitoring
-    'discover_schema',
-    'monitor_schema_changes',
-    'generate_pdf_from_json',
+
     
     # Database operations
     'SchemaSnapshot',
-    'APIMetadata',
+    'ApiRegistry',
     
     # Fingerprinting and diffing
     'ResponseFingerprint',

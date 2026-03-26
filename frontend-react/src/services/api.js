@@ -1,11 +1,20 @@
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001';
 
 class ApiService {
+  static getAuthHeader() {
+    const token = localStorage.getItem('access_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  }
+
   static async handleResponse(response) {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      if (response.status === 401) {
+        localStorage.removeItem('access_token');
+        window.location.hash = '#/login'; // Simple redirect strategy
+      }
+      throw new Error(data.detail || data.error || `HTTP error! status: ${response.status}`);
     }
     
     return data;
@@ -16,6 +25,7 @@ class ApiService {
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
+          ...this.getAuthHeader(),
           ...options.headers
         },
         ...options
@@ -24,10 +34,45 @@ class ApiService {
       return await this.handleResponse(response);
     } catch (error) {
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://localhost:8001');
+        throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://127.0.0.1:8001');
       }
       throw error;
     }
+  }
+
+  // Auth endpoints
+  static async login(username, password) {
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await this.handleResponse(response);
+      localStorage.setItem('access_token', data.access_token);
+      return data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async register(username, password) {
+    return this.request(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  static logout() {
+    localStorage.removeItem('access_token');
+    window.location.hash = '#/login';
+  }
+
+  static isAuthenticated() {
+    return !!localStorage.getItem('access_token');
   }
 
   // API Registry endpoints
@@ -46,13 +91,14 @@ class ApiService {
     try {
       const response = await fetch(`${API_BASE_URL}/api/apis`, {
         method: 'POST',
+        headers: { ...this.getAuthHeader() },
         body: formData
       });
       
       return await this.handleResponse(response);
     } catch (error) {
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://localhost:8001');
+        throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://127.0.0.1:8001');
       }
       throw error;
     }

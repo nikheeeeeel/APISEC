@@ -17,14 +17,13 @@ app.add_middleware(
 )
 
 # Mount static files
-app.mount("/", StaticFiles(directory="../frontend-react/dist", html=True), name="static")
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(
-        "main_prod:app",
+        app,
         host="0.0.0.0",
         port=8000,
-        workers=4,  # Number of worker processes
         access_log=True,
         reload=False,  # Disable reload in production
     )
