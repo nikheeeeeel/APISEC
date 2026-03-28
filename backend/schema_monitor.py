@@ -1661,8 +1661,14 @@ def compare_schemas(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> L
         
         return differences
     
-    # Perform comprehensive comparison
-    schema_differences = deep_compare(old_normalized, new_normalized)
+    # Perform comprehensive comparison on metadata (excluding sections with specialized engines)
+    meta_keys = set(old_normalized.keys()) | set(new_normalized.keys())
+    excluded_sections = {'paths', 'components', 'security'}
+    
+    old_meta = {k: v for k, v in old_normalized.items() if k not in excluded_sections}
+    new_meta = {k: v for k, v in new_normalized.items() if k not in excluded_sections}
+    
+    schema_differences = deep_compare(old_meta, new_meta)
     
     # Add specific endpoint, parameter, and response comparisons
     old_paths = old_normalized.get('paths', {})
