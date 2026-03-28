@@ -13,9 +13,14 @@ class ApiService {
 
   static async request(url, options = {}) {
     try {
+      // Get auth token from localStorage
+      const token = localStorage.getItem('access_token');
+      
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
+          // Add auth header if token exists
+          ...(token && { 'Authorization': `Bearer ${token}` }),
           ...options.headers
         },
         ...options
@@ -26,6 +31,13 @@ class ApiService {
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
         throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://localhost:8001');
       }
+      
+      // Handle 401 Unauthorized - clear token and redirect to login
+      if (error.message.includes('401') || error.message.includes('Could not validate credentials')) {
+        localStorage.removeItem('access_token');
+        window.location.href = '/login';
+      }
+      
       throw error;
     }
   }
@@ -44,8 +56,13 @@ class ApiService {
     }
 
     try {
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/api/apis`, {
         method: 'POST',
+        headers: {
+          // Don't set Content-Type for FormData - browser will set it with boundary
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
         body: formData
       });
       
@@ -54,6 +71,13 @@ class ApiService {
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
         throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://localhost:8001');
       }
+      
+      // Handle 401 Unauthorized
+      if (error.message.includes('401') || error.message.includes('Could not validate credentials')) {
+        localStorage.removeItem('access_token');
+        window.location.href = '/login';
+      }
+      
       throw error;
     }
   }
@@ -101,6 +125,39 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ base_url: baseUrl, schema_info: schemaInfo })
     });
+  }
+
+  // Differential analysis endpoint
+  static async analyzeDiff(baseUrl, newUrl) {
+    const formData = new FormData();
+    formData.append('base_url', baseUrl);
+    formData.append('new_url', newUrl);
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`${API_BASE_URL}/analyze-diff`, {
+        method: 'POST',
+        headers: {
+          // Don't set Content-Type for FormData
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: formData
+      });
+      
+      return await this.handleResponse(response);
+    } catch (error) {
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        throw new Error('Unable to connect to the backend. Please ensure the backend server is running on http://localhost:8001');
+      }
+      
+      // Handle 401 Unauthorized
+      if (error.message.includes('401') || error.message.includes('Could not validate credentials')) {
+        localStorage.removeItem('access_token');
+        window.location.href = '/login';
+      }
+      
+      throw error;
+    }
   }
 }
 

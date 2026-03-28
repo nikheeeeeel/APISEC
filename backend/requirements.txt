@@ -9,6 +9,7 @@ pyyaml>=6.0.1
 # HTTP Client & Networking
 requests>=2.31.0
 aiohttp>=3.9.0
+httpx>=0.25.0
 
 # PDF Generation
 reportlab>=4.0.0
@@ -19,12 +20,32 @@ websockets>=12.0
 # URL Parsing
 yarl>=1.9.0
 
-# Database (built-in)
+# Database
 # sqlite3 - included with Python
+psycopg2-binary>=2.9.7
+sqlalchemy>=2.0.0
+
+# Authentication & Security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
 
 # Development & Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-docker>=3.0.0
+pytest-timeout>=2.2.0
+
+# Load Testing
+locust>=2.17.0
+
+# Frontend Testing
+playwright>=1.40.0
+
+# Integration Testing
+testcontainers>=3.7.1
 
 # Additional Utilities
 annotated-types>=0.6.0

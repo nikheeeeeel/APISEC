@@ -24,15 +24,15 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 
+# Test API
+test_api/node_modules/
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# Test API
-test_api/node_modules/
 
 # OS
 .DS_Store

@@ -6,7 +6,7 @@ contextual REST support including authentication, seed bodies, and content-type 
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Literal, Any
+from typing import Optional, Dict, Literal, Any, List
 from pydantic import BaseModel, Field, validator
 
 

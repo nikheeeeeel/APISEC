@@ -5,9 +5,12 @@ import {
   GitCompare, 
   BarChart3,
   Settings,
-  Shield
+  Shield,
+  LogOut,
+  User
 } from 'lucide-react';
 import ConnectionStatus from './ConnectionStatus';
+import { useAuth } from '../contexts/AuthContext';
 
 const menuItems = [
   { path: '/schema-finder', label: 'Schema Finder', icon: Search },
@@ -17,6 +20,7 @@ const menuItems = [
 
 const Sidebar = () => {
   const location = useLocation();
+  const { user, logout, isAdmin } = useAuth();
 
   return (
     <div className="w-64 bg-black border-r border-gray-800 flex flex-col">
@@ -30,6 +34,28 @@ const Sidebar = () => {
             <h1 className="text-xl font-bold text-white">APISEC</h1>
             <p className="text-xs text-gray-400">Security Scanner</p>
           </div>
+        </div>
+      </div>
+
+      {/* User Info */}
+      <div className="p-4 border-b border-gray-800">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center">
+            <User className="w-4 h-4 text-gray-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">
+              {user?.username}
+            </p>
+            <p className="text-xs text-gray-400 truncate">
+              {user?.email}
+            </p>
+          </div>
+          {isAdmin && (
+            <span className="px-2 py-1 text-xs bg-orange-500/20 text-orange-500 rounded-full">
+              Admin
+            </span>
+          )}
         </div>
       </div>
 
@@ -78,6 +104,15 @@ const Sidebar = () => {
           </div>
           <ConnectionStatus />
         </div>
+
+        {/* Logout Button */}
+        <button
+          onClick={logout}
+          className="w-full flex items-center space-x-3 px-4 py-3 text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg transition-all duration-200"
+        >
+          <LogOut className="w-5 h-5" />
+          <span className="font-medium">Logout</span>
+        </button>
       </div>
     </div>
   );
