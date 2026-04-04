@@ -12,6 +12,81 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Guidance keyed by compatibility_rule_id (schema_diff_engine). Used to steer ai_description.
+RULE_ANALYSIS_HINTS = {
+    1010: (
+        "New required field on the request body: existing clients that omit it will typically receive "
+        "HTTP 400 Bad Request (validation / schema rejection). Mention SDKs, generated clients, and "
+        "manual JSON payloads that must include the new property."
+    ),
+    1011: (
+        "New required field on the response: often backward compatible for clients that ignore unknown "
+        "properties, but strict parsers, OpenAPI codegen, or contract tests may need updates."
+    ),
+    1012: (
+        "New required operation parameter (query/header/path/cookie): callers that omit it will usually "
+        "get 400 Bad Request. Mention client libraries and request builders."
+    ),
+    1013: (
+        "Optional field added: generally safe for existing clients; note any documentation or discovery impact."
+    ),
+    1020: (
+        "Required response field removed: clients and SDKs that depended on this property may break at runtime."
+    ),
+    1021: (
+        "Required request field removed: server is usually more permissive; existing clients keep working."
+    ),
+    1022: (
+        "Required parameter removed: clients sending the old parameter still work; mention deprecation clarity."
+    ),
+    1023: (
+        "Optional field removed: low risk unless clients relied on the property."
+    ),
+    1030: (
+        "Parameter moved between locations (e.g. query to header): same name is not the same contract—"
+        "clients must change how they send the value (URL vs headers)."
+    ),
+    1040: (
+        "Incompatible type change: deserialization and validation often fail; treat as high-risk for clients."
+    ),
+    1041: (
+        "Compatible or widened type change: lower risk but may still affect strict validators."
+    ),
+    1050: (
+        "Field became optional: clients gain flexibility; servers should still accept old payloads."
+    ),
+    1051: (
+        "Field became required on the request: payloads missing it will typically fail with 400 Bad Request."
+    ),
+    1052: (
+        "Field became required on the response: clients should tolerate the new shape; strict code may need updates."
+    ),
+    1053: (
+        "Parameter became required: requests without it may return 400 Bad Request."
+    ),
+    1060: (
+        "Field renamed on the request or parameter surface: clients must use the new name; often breaking."
+    ),
+    1061: (
+        "Field renamed on the response: JSON consumers keyed on old names will break."
+    ),
+    1070: (
+        "Field moved to a different object path: clients using fixed JSON paths must update."
+    ),
+    1071: (
+        "Response field moved: clients using fixed paths or codegen may need updates."
+    ),
+    8001: (
+        "Sensitive or credential-like name exposed in a response field: security and compliance risk "
+        "(logging, caching, accidental disclosure). Recommend removing or redacting, never returning secrets in APIs."
+    ),
+    9001: ("Endpoint path version or naming normalization only; usually routing or URL update."),
+    9002: ("HTTP method removed: clients calling it will get 404 or 405."),
+    9003: ("New HTTP method added; additive for existing callers."),
+    9004: ("Entire endpoint removed; existing clients lose the route."),
+    9005: ("New endpoint added; additive."),
+}
+
 # Try to load environment variables from .env
 try:
     from dotenv import load_dotenv
@@ -47,21 +122,78 @@ def _get_gemini_model():
         return None
 
 
+def _direction_label(change: Dict[str, Any]) -> str:
+    d = (change.get("direction") or change.get("schema_direction") or "").strip()
+    if not d:
+        return "unspecified surface"
+    return {"request": "Request", "response": "Response", "parameter": "Parameter"}.get(
+        d.lower(), d.capitalize()
+    )
+
+
+def _change_prompt_block(index: int, change: Dict[str, Any]) -> str:
+    """One change with explicit rule and direction for context-aware analysis."""
+    rid = change.get("compatibility_rule_id")
+    rname = change.get("compatibility_rule_name") or "UnknownRule"
+    category = change.get("rule_category") or "Unknown"
+    direction = _direction_label(change)
+    path = (
+        change.get("path")
+        or change.get("original_path")
+        or change.get("new_path")
+        or ""
+    )
+    method = change.get("method") or ""
+    st = change.get("semantic_type") or change.get("type") or ""
+    breaking = change.get("breaking_change") or (
+        "breaking" if change.get("breaking") is True else (
+            "non_breaking" if change.get("breaking") is False else "unknown"
+        )
+    )
+    sec = change.get("security_issue")
+    hint = ""
+    if isinstance(rid, int) and rid in RULE_ANALYSIS_HINTS:
+        hint = RULE_ANALYSIS_HINTS[rid]
+
+    lines = [
+        f"Change #{index + 1}:",
+        f"  - API path / logical key: {path}",
+        f"  - HTTP method (if any): {method or '(n/a)'}",
+        f"  - Direction (Request / Response / Parameter): {direction}",
+        f"  - Compatibility rule: Rule {rid} ({rname})" if rid is not None else f"  - Compatibility rule: ({rname})",
+        f"  - Rule category: {category}",
+        f"  - Contract breaking (rules engine): {breaking}",
+    ]
+    if sec:
+        lines.append("  - Security flag: CRITICAL — sensitive or credential-like exposure in response")
+    if hint:
+        lines.append(f"  - Rule-specific guidance (use this in ai_description): {hint}")
+    lines.append(f"  - Raw change record: {json.dumps(change, default=str)}")
+    return "\n".join(lines)
+
+
 def _build_prompt(changes: List[Dict[str, Any]], old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> str:
     """Build the analysis prompt for Gemini."""
-    
-    # Trim schemas to relevant parts to save tokens
+
     old_summary = _summarize_schema(old_schema)
     new_summary = _summarize_schema(new_schema)
-    
-    changes_text = json.dumps(changes, indent=2, default=str)
-    
-    prompt = f"""You are an API compatibility expert. Analyze the following API schema changes detected between two OpenAPI schema versions.
+
+    change_blocks = "\n\n".join(
+        _change_prompt_block(i, c) for i, c in enumerate(changes)
+    )
+
+    prompt = f"""You are an API compatibility and security expert. Analyze the following API schema changes detected between two OpenAPI schema versions.
+
+For EACH change (in order), the prompt includes:
+- **Direction**: whether the change affects the Request body, Response body, or Parameters (operation parameters).
+- **Rule ID and name**: the compatibility rule that fired (from the rules engine).
+- **Rule category**: e.g. Security, Contract violation, Additive / compatible.
+- **Rule-specific guidance**: when present, you MUST incorporate it into **ai_description** so the text reflects the real-world effect (e.g. for Rule 1010, explicitly mention that existing clients may get **HTTP 400 Bad Request** if they omit the new required request field).
 
 For EACH change, provide:
-1. **ai_description**: A clear, human-readable explanation of what changed and why it matters. Write this for a developer who needs to understand the impact. Be specific and concise (2-3 sentences max).
-2. **ai_impact_analysis**: Who/what is affected — API consumers, client SDKs, frontend apps, mobile apps, CI/CD pipelines, etc. One sentence.
-3. **ai_fix_suggestion**: For breaking changes ONLY, provide concrete actionable steps to fix or handle the breaking change. For non-breaking changes, set this to null. Be specific with code-level guidance when possible.
+1. **ai_description**: 2–3 sentences. Ground the explanation in the **rule name and rule-specific guidance** above—not generic diff text. If the rule implies validation failures (e.g. 400), say so clearly.
+2. **ai_impact_analysis**: One sentence on who is affected (SDKs, mobile/web clients, CI, etc.).
+3. **ai_fix_suggestion**: Set to **null** only for purely non-breaking, non-security additive changes. For **contract-breaking** changes OR **security_issue** / Rule 8001 / Critical security, provide concrete remediation steps (never null for those).
 
 ## Old Schema Summary
 ```json
@@ -73,10 +205,8 @@ For EACH change, provide:
 {json.dumps(new_summary, indent=2)}
 ```
 
-## Detected Changes
-```json
-{changes_text}
-```
+## Detected Changes (context-aware; one block per change)
+{change_blocks}
 
 ## Response Format
 Respond with ONLY a valid JSON array. Each element must correspond to a change (same order as input) with these fields:
@@ -85,13 +215,13 @@ Respond with ONLY a valid JSON array. Each element must correspond to a change (
   {{
     "ai_description": "Human-readable explanation",
     "ai_impact_analysis": "Who is affected",
-    "ai_fix_suggestion": "Steps to fix (null if non-breaking)"
+    "ai_fix_suggestion": "Steps to fix (null only if safe additive non-security)"
   }}
 ]
 ```
 
 CRITICAL: Return ONLY the JSON array, no markdown fences, no other text. The array MUST have exactly {len(changes)} elements, one for each input change, in the same order."""
-    
+
     return prompt
 
 
@@ -275,9 +405,37 @@ async def analyze_single_change(
         new_summary = _summarize_schema(new_schema)
         
         change_text = json.dumps(change, indent=2, default=str)
-        
+        rid = change.get("compatibility_rule_id")
+        rname = change.get("compatibility_rule_name")
+        category = change.get("rule_category")
+        direction = _direction_label(change)
+        path = (
+            change.get("path")
+            or change.get("original_path")
+            or change.get("new_path")
+            or ""
+        )
+        method = change.get("method") or ""
+        hint = ""
+        if isinstance(rid, int) and rid in RULE_ANALYSIS_HINTS:
+            hint = RULE_ANALYSIS_HINTS[rid]
+        security_note = ""
+        if change.get("security_issue") or rid == 8001:
+            security_note = (
+                "\nThis change is flagged as a **CRITICAL security issue** (sensitive-like data in an API response). "
+                "Prioritize data protection, logging, and removal/redaction in your explanation.\n"
+            )
+
         prompt = f"""You are an expert API developer and architect. Analyze this specific API schema change detected between two OpenAPI versions.
 Your goal is to explain this change to a fellow developer who consumes this API.
+
+## Context (rules engine)
+- **Path**: {path}
+- **Method**: {method or '(n/a)'}
+- **Direction**: {direction} (Request vs Response vs Parameter)
+- **Rule**: Rule {rid} — {rname}
+- **Rule category**: {category or 'Unknown'}
+{security_note}{f"- **Rule-specific guidance** (use in your explanation): {hint}" if hint else ""}
 
 ## Old Schema Summary
 ```json
@@ -289,15 +447,15 @@ Your goal is to explain this change to a fellow developer who consumes this API.
 {json.dumps(new_summary, indent=2)}
 ```
 
-## The Specific Change
+## The Specific Change (raw)
 ```json
 {change_text}
 ```
 
 Please provide a detailed, markdown-formatted explanation of this change containing:
-1. **What Changed**: A clear explanation of exactly what was modified, added, or removed.
-2. **Why it Matters**: The implications of this change for developers consuming the API. If it's a breaking change, explain why it broke.
-3. **How to Adapt**: Concrete steps or examples showing how developers should update their clients/code to handle this change. If it's not breaking, mention what new capabilities this unlocks.
+1. **What Changed**: What was modified, added, or removed—tie it to the **rule** above.
+2. **Why it Matters**: Implications for SDKs and clients. If the rule implies HTTP **400** validation failures or security exposure, state that explicitly.
+3. **How to Adapt**: Concrete steps to update clients or fix security issues.
 
 Keep your response concise, professional, and directly actionable. Use code blocks for examples if relevant. Do NOT output a JSON response, just output the raw markdown text."""
         

@@ -1,27 +1,25 @@
 """
-Differential analysis probes for API parameter discovery.
-
-This module provides probe strategies for systematic parameter discovery
-through differential analysis.
+OpenAPI schema semantic diff (used by schema_monitor / Version Check).
 """
 
-from .differential_engine import (
+from .schema_diff_engine import (
+    ChangeClassifier,
+    DiffEngine,
     DifferentialEngine,
-    ParameterCandidate
-)
-
-from .strategies import (
-    ProbeStrategy,
-    StringProbe,
-    NumericProbe,
-    BooleanProbe
+    EndpointMatcher,
+    PathNormalizer,
+    SchemaResolver,
+    compare_schemas_v2,
+    semantic_schema_diff,
 )
 
 __all__ = [
-    'DifferentialEngine',
-    'ParameterCandidate',
-    'ProbeStrategy',
-    'StringProbe',
-    'NumericProbe',
-    'BooleanProbe'
+    "ChangeClassifier",
+    "DiffEngine",
+    "DifferentialEngine",
+    "EndpointMatcher",
+    "PathNormalizer",
+    "SchemaResolver",
+    "compare_schemas_v2",
+    "semantic_schema_diff",
 ]

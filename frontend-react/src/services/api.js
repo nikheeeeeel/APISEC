@@ -110,6 +110,27 @@ class ApiService {
     });
   }
 
+  static async updateApi(apiId, name, base_url, description = null) {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('base_url', base_url);
+    if (description) {
+      formData.append('description', description);
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/apis/${apiId}`, {
+        method: 'PUT',
+        headers: { ...this.getAuthHeader() },
+        body: formData
+      });
+      
+      return await this.handleResponse(response);
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Schema endpoints
   static async getApiSchemas(apiId) {
     return this.request(`${API_BASE_URL}/api/apis/${apiId}/schemas`);
@@ -117,10 +138,6 @@ class ApiService {
 
   static async getLatestSchema(apiId) {
     return this.request(`${API_BASE_URL}/api/apis/${apiId}/schemas/latest`);
-  }
-
-  static async getSchemaVersion(apiId, version) {
-    return this.request(`${API_BASE_URL}/api/schemas/${apiId}/version/${version}`);
   }
 
   static async scanApiSchema(apiId) {

@@ -58,6 +58,7 @@ SCHEMA_PATHS = [
     '/swagger/v1',
     '/_swagger',
     '/swagger',
+    '/api/internal/schema.json',
 ]
 
 PRIORITY_PATHS = [
@@ -422,6 +423,99 @@ def crawl_for_schema(
         return schema, found_url
     
     return None, None
+
+
+def crawl_all_schemas(
+    base_url: str,
+    timeout: float = 5.0,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None
+) -> List[Tuple[Optional[Dict[str, Any]], Optional[str]]]:
+    """Crawl the API base URL and return ALL valid schema endpoints found.
+
+    Unlike crawl_for_schema (which stops at the first hit), this function
+    continues through all known paths and collects every distinct OpenAPI
+    schema, enabling automatic discovery of versioned endpoints like
+    /v1/openapi.json and /v2/openapi.json simultaneously.
+
+    Args:
+        base_url: The base URL of the API
+        timeout: Request timeout in seconds (default 5)
+        progress_callback: Optional callback(status, path, progress, total)
+
+    Returns:
+        List of (schema_dict, discovered_url) tuples — one per distinct schema.
+        Empty list if nothing is found.
+    """
+    if not base_url.startswith('http://') and not base_url.startswith('https://'):
+        base_url = 'https://' + base_url
+
+    session = requests.Session()
+    session.headers.update({
+        'Accept': 'application/json, application/yaml, text/html',
+        'User-Agent': 'APISec-Schema-Monitor/1.0'
+    })
+
+    priority_paths = [p for p in PRIORITY_PATHS if p in SCHEMA_PATHS]
+    remaining_paths = [p for p in SCHEMA_PATHS if p not in PRIORITY_PATHS]
+    all_paths = priority_paths + remaining_paths
+
+    total = len(all_paths)
+    found: List[Tuple[Dict[str, Any], str]] = []
+    # Track content hashes to deduplicate identical schemas served at multiple paths
+    seen_hashes: Set[str] = set()
+
+    for idx, path in enumerate(all_paths):
+        if progress_callback:
+            progress_callback("checking", path, idx + 1, total)
+
+        url = base_url.rstrip('/') + path
+        try:
+            response = session.get(url, timeout=timeout)
+            if response.status_code != 200:
+                continue
+
+            content_type = response.headers.get('Content-Type', '')
+            schema = None
+
+            if 'json' in content_type:
+                try:
+                    schema = response.json()
+                except Exception:
+                    pass
+            elif 'yaml' in content_type:
+                try:
+                    import yaml as _yaml
+                    schema = _yaml.safe_load(response.text)
+                except Exception:
+                    pass
+            else:
+                # Try JSON first, then YAML
+                try:
+                    schema = response.json()
+                except Exception:
+                    if YAML_AVAILABLE:
+                        try:
+                            import yaml as _yaml
+                            schema = _yaml.safe_load(response.text)
+                        except Exception:
+                            pass
+
+            if schema and is_valid_openapi_schema(schema):
+                # Deduplicate by stable JSON fingerprint
+                import hashlib
+                content_hash = hashlib.md5(
+                    json.dumps(schema, sort_keys=True).encode()
+                ).hexdigest()
+                if content_hash not in seen_hashes:
+                    seen_hashes.add(content_hash)
+                    found.append((schema, url))
+                    if progress_callback:
+                        progress_callback("found", url, idx + 1, total)
+
+        except requests.exceptions.RequestException:
+            continue
+
+    return found
 
 
 def discover_schema_from_html(
@@ -1282,7 +1376,8 @@ def generate_diff_summary(changes: List[Dict[str, Any]]) -> Dict[str, Any]:
             'critical': 0,
             'high': 0,
             'medium': 0,
-            'low': 0
+            'low': 0,
+            'info': 0,
         }
     }
     
@@ -1317,31 +1412,160 @@ def generate_diff_summary(changes: List[Dict[str, Any]]) -> Dict[str, Any]:
     return summary
 
 
+def _semantic_change_details(c: Dict[str, Any]) -> str:
+    """Human-readable line for UI/export when the semantic engine omits `details`."""
+    t = c.get("type")
+    if t == "VERSION_BUMP":
+        return (
+            f"Endpoint version bump: {c.get('original_path')} -> {c.get('new_path')}"
+        )
+    if t == "ENDPOINT_REMOVED":
+        return f"Endpoint removed: {c.get('original_path')}"
+    if t == "ENDPOINT_ADDED":
+        return f"Endpoint added: {c.get('original_path')}"
+    if t == "METHOD_REMOVED":
+        return f"Method removed: {c.get('method')} {c.get('path') or c.get('original_path')}"
+    if t == "METHOD_ADDED":
+        return f"Method added: {c.get('method')} {c.get('path') or c.get('original_path')}"
+    if t == "FIELD_RENAMED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} field renamed: "
+            f"{c.get('from')} -> {c.get('to')}"
+        ).strip()
+    if t == "FIELD_MOVED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} field moved: "
+            f"{c.get('field')} ({c.get('from_path')} -> {c.get('to_path')})"
+        ).strip()
+    if t == "FIELD_TYPE_CHANGED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} field type changed: {c.get('field')}"
+        ).strip()
+    if t == "REQUIRED_STATUS_CHANGED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} required status for "
+            f"\"{c.get('field')}\": {c.get('required_before')} -> {c.get('required_after')}"
+        ).strip()
+    if t == "FIELD_REMOVED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} field removed: {c.get('field')}"
+        ).strip()
+    if t == "FIELD_ADDED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} required field added: {c.get('field')}"
+        ).strip()
+    if t == "OPTIONAL_FIELD_ADDED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} optional field added: {c.get('field')}"
+        ).strip()
+    if t == "PARAMETER_LOCATION_CHANGED":
+        return (
+            f"{c.get('direction', '')} {c.get('method', '')} parameter moved "
+            f"{c.get('old_in')} -> {c.get('new_in')}: {c.get('field')}"
+        ).strip()
+    if t == "SENSITIVE_RESPONSE_FIELD_ADDED":
+        return (
+            f"Critical security: sensitive-like field '{c.get('field')}' added to "
+            f"{c.get('direction', 'response')} body at {c.get('path', '')} "
+            f"({c.get('method', '')})"
+        ).strip()
+    if t == "SENSITIVE_LEAKAGE":
+        return f"Sensitive field present internally but not in public schema: {c.get('field')}"
+    return ""
+
+
 def compare_schemas_structured(old_schema: Dict[str, Any], new_schema: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compare two schemas and return structured output with summary.
-    
-    This function provides the enhanced output format with summary statistics
-    while maintaining backward compatibility.
-    
-    Args:
-        old_schema: Old OpenAPI schema
-        new_schema: New OpenAPI schema
-        
-    Returns:
-        Structured diff result with summary and changes
+
+    Now delegates to the refactored differential engine which provides:
+    - Path normalisation (v1/v2 treated as same logical endpoint)
+    - Deep field-level diffing with rename heuristics
+    - Noise filtering (admin/internal paths, info metadata)
+    - Structured impact classification (HIGH / MEDIUM / LOW)
     """
-    # Get the raw changes using the existing function
-    changes = compare_schemas(old_schema, new_schema)
-    
-    # Generate summary
-    summary = generate_diff_summary(changes)
-    
-    # Return structured result
+    from probes.schema_diff_engine import compare_schemas_v2
+
+    result = compare_schemas_v2(old_schema, new_schema)
+
+    # Normalise change records so the frontend mapper keeps working.
+    # The new engine uses uppercase TYPE names; translate to lowercase for
+    # backward compatibility with the 'type', 'details', 'breaking_change' keys
+    # that the existing compare_endpoint_signatures path already produces.
+    normalised_changes = []
+    for c in result["changes"]:
+        nc = dict(c)
+        nc["semantic_type"] = c.get("type")
+        # Map new TYPE names → old category / type conventions
+        type_map = {
+            "ENDPOINT_REMOVED": ("endpoint", "removed"),
+            "ENDPOINT_ADDED":   ("endpoint", "added"),
+            "VERSION_BUMP":     ("endpoint", "modified"),
+            "METHOD_REMOVED":   ("endpoint", "removed"),
+            "METHOD_ADDED":     ("endpoint", "added"),
+            "FIELD_REMOVED":    ("schema",   "removed"),
+            "FIELD_ADDED":      ("schema",   "added"),
+            "OPTIONAL_FIELD_ADDED": ("schema", "added"),
+            "FIELD_RENAMED":    ("schema",   "modified"),
+            "FIELD_MOVED":      ("schema",   "modified"),
+            "FIELD_TYPE_CHANGED":       ("schema", "modified"),
+            "REQUIRED_STATUS_CHANGED":  ("schema", "modified"),
+            "PARAMETER_LOCATION_CHANGED": ("schema", "modified"),
+            "SENSITIVE_LEAKAGE":        ("schema", "modified"),
+            "SENSITIVE_RESPONSE_FIELD_ADDED": ("schema", "modified"),
+        }
+        category, otype = type_map.get(nc.get("type", ""), ("schema", "modified"))
+        nc["category"] = category
+        nc["type"]     = otype
+
+        if not nc.get("details"):
+            d = _semantic_change_details(c)
+            if d:
+                nc["details"] = d
+        
+        # UI compatibility: map 'details' to 'description' and lowercase 'impact'
+        if "details" in nc:
+            nc["description"] = nc["details"]
+        if "impact" in nc:
+            nc["impact"] = nc["impact"].lower()
+
+        sev_src = c.get("severity") or c.get("impact", "")
+        if isinstance(sev_src, str):
+            sev_src = sev_src.upper()
+        nc["severity"] = {
+            "HIGH": "high",
+            "MEDIUM": "medium",
+            "LOW": "low",
+            "CRITICAL": "critical",
+            "INFO": "info",
+        }.get(sev_src, "medium")
+
+        if c.get("breaking") is True:
+            nc["breaking_change"] = "breaking"
+        elif c.get("breaking") is False:
+            nc["breaking_change"] = "non_breaking"
+        else:
+            nc["breaking_change"] = "info"
+
+        if c.get("compatibility_rule_id") is not None:
+            nc["compatibility_rule_id"] = c["compatibility_rule_id"]
+        if c.get("compatibility_rule_name"):
+            nc["compatibility_rule_name"] = c["compatibility_rule_name"]
+        if c.get("rule_category"):
+            nc["rule_category"] = c["rule_category"]
+        if c.get("security_issue"):
+            nc["security_issue"] = True
+
+        normalised_changes.append(nc)
+
+    # Keep the old summary shape
+    summary = generate_diff_summary(normalised_changes)
+
     return {
-        'summary': summary,
-        'changes': changes
+        "summary": summary,
+        "changes": normalised_changes,
     }
+
 
 
 def enhance_change_classification(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -56,12 +56,27 @@ const SchemaValidate = () => {
             overall: `${Math.round((result.passed_endpoints / result.tested_endpoints) * 100)}%`,
             issues: result.endpoint_tests
               .filter(test => !test.validation_passed)
-              .map(test => ({
-                severity: test.status_mismatch ? 'error' : 'warning',
-                message: test.error || `Validation failed for ${test.method} ${test.path}`,
-                path: test.path,
-                line: 1
-              })),
+              .map(test => {
+                const parts = [];
+                if (test.error) parts.push(test.error);
+                if (test.status_mismatch && test.actual_status != null) {
+                  parts.push(
+                    `HTTP ${test.actual_status}` +
+                      (test.expected_status != null ? ` (spec default ${test.expected_status})` : '')
+                  );
+                }
+                if (test.schema_mismatch) parts.push('Response JSON does not match declared schema');
+                const message =
+                  parts.length > 0
+                    ? parts.join(' · ')
+                    : `Validation failed for ${test.method} ${test.path}`;
+                return {
+                  severity: test.status_mismatch ? 'error' : 'warning',
+                  message,
+                  path: `${test.method} ${test.path}`,
+                  line: 1
+                };
+              }),
             stats: {
               totalChecks: result.tested_endpoints,
               passed: result.passed_endpoints,

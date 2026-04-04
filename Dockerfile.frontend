@@ -1,0 +1,22 @@
+# Build stage
+FROM node:18-alpine AS build
+
+WORKDIR /app
+COPY frontend-react/package*.json ./
+RUN npm ci
+
+COPY frontend-react/ ./
+# Set exactly where the frontend should reach the API when served locally
+ENV VITE_API_URL=http://localhost:8000
+RUN npm run build
+
+# Serve stage
+FROM nginx:alpine
+
+# Copy built assets to Nginx html directory
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Replace default config with ours (we will mount it via docker-compose)
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

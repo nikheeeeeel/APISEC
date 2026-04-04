@@ -9,10 +9,8 @@ import logging
 import sys
 import os
 
-from schema_monitor import crawl_for_schema, generate_pdf_from_json, compare_schemas, compare_schemas_structured
+from schema_monitor import crawl_for_schema, crawl_all_schemas, generate_pdf_from_json, compare_schemas, compare_schemas_structured
 from ai_analyzer import analyze_single_change
-from probes.differential_engine import DifferentialEngine
-from fingerprint import create_fingerprint, compare_fingerprints
 from runtime_validator import create_runtime_validator
 from models import DiscoveryRequest
 from models_runtime import (
@@ -193,14 +191,6 @@ async def discover_schema_endpoint(request: DiscoveryRequest, current_user: dict
         logger.error(f"Schema discovery failed: {str(e)}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.post("/analyze-diff")
-async def analyze_diff_endpoint(base_url: str, new_url: str, current_user: dict = Depends(get_current_user)):
-    try:
-        diff_engine = DifferentialEngine()
-        return {"status": "success", "base_url": base_url, "new_url": new_url, "message": "Unimplemented"}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
 # === Schema Monitor API Endpoints ===
 
 @app.get("/api/apis")
@@ -241,17 +231,37 @@ async def scan_api_schema(api_id: int, current_user: dict = Depends(get_current_
         api = ApiRegistry.get_by_id(current_user['id'], api_id)
         if not api: return JSONResponse(status_code=404, content={"error": "API not found"})
         
-        schema_info, schema_url = crawl_for_schema(api['base_url'])
-        if not schema_info: return {"status": "no_schema", "message": "No schema found"}
+        # Discover ALL versioned schemas at once (e.g., /v1/openapi.json + /v2/openapi.json)
+        all_schemas = crawl_all_schemas(api['base_url'])
+        if not all_schemas:
+            return {"status": "no_schema", "message": "No schema found"}
         
-        result = SchemaSnapshot.create_if_different(api_id, schema_info)
-        if result['status'] == 'unchanged':
-            return {"status": "unchanged", "message": "Schema has not changed", "schema": result['schema']['schema_json'], "schema_url": schema_url}
+        new_snapshots = []
+        unchanged_count = 0
         
-        schema_pdf = generate_pdf_from_json(schema_info)
-        SchemaSnapshot.update_pdf(result['id'], schema_pdf)
+        for schema_info, schema_url in all_schemas:
+            result = SchemaSnapshot.create_if_different(api_id, schema_info, schema_url=schema_url)
+            if result.get('status') == 'unchanged':
+                unchanged_count += 1
+                continue
+            
+            # Generate PDF and attach to snapshot
+            schema_pdf = generate_pdf_from_json(schema_info)
+            SchemaSnapshot.update_pdf(result['id'], schema_pdf)
+            new_snapshots.append(result)
         
-        return {"status": "success", "message": "New schema stored", "schema": schema_info, "schema_url": schema_url, "snapshot": result}
+        if new_snapshots:
+            return {
+                "status": "success",
+                "message": f"{len(new_snapshots)} new schema(s) stored, {unchanged_count} unchanged",
+                "schemas_found": len(all_schemas),
+                "snapshots": new_snapshots
+            }
+        else:
+            return {
+                "status": "unchanged",
+                "message": f"All {unchanged_count} schema(s) unchanged"
+            }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -269,6 +279,28 @@ async def create_api(
         
         api = ApiRegistry.create(user_id=current_user['id'], name=name, base_url=base_url, description=description)
         return {"status": "success", "api": api}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.put("/api/apis/{api_id}")
+async def update_api(
+    api_id: int,
+    name: str = Form(...),
+    base_url: str = Form(...),
+    description: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        api = ApiRegistry.get_by_id(current_user['id'], api_id)
+        if not api:
+            return JSONResponse(status_code=404, content={"error": "API not found"})
+        
+        success = ApiRegistry.update(current_user['id'], api_id, name, base_url, description)
+        if success:
+            updated_api = ApiRegistry.get_by_id(current_user['id'], api_id)
+            return {"status": "success", "api": updated_api}
+        else:
+            return JSONResponse(status_code=500, content={"error": "Failed to update API"})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

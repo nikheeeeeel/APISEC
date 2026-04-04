@@ -1,65 +1,39 @@
 """
-API Security - Schema Discovery and Diffing Module.
-
-This package provides focused functionality for:
-1. API schema discovery and monitoring
-2. Differential analysis between API responses
+API Security — schema discovery, registry, and OpenAPI diffing (frontend-backed API).
 """
 
-# Core models
 from .models import (
     AuthConfig,
     DiscoveryRequest,
     DiscoveryContext,
     ProbeResult,
     DetectionResult,
-    ConfidenceScore
+    ConfidenceScore,
 )
 
-
-
-# Database operations
 from .registry_db import (
+    ApiRegistry,
     SchemaSnapshot,
-    ApiRegistry
 )
 
-# Fingerprinting and diffing
-from .fingerprint import (
-    ResponseFingerprint,
-    FingerprintDiff,
-    create_fingerprint,
-    compare_fingerprints
-)
-
-# Differential engine
-from .probes.differential_engine import (
+from .probes.schema_diff_engine import (
+    DiffEngine,
     DifferentialEngine,
-    ParameterCandidate
+    compare_schemas_v2,
+    semantic_schema_diff,
 )
 
 __all__ = [
-    # Models
-    'AuthConfig',
-    'DiscoveryRequest',
-    'DiscoveryContext', 
-    'ProbeResult',
-    'DetectionResult',
-    'ConfidenceScore',
-    
-
-    
-    # Database operations
-    'SchemaSnapshot',
-    'ApiRegistry',
-    
-    # Fingerprinting and diffing
-    'ResponseFingerprint',
-    'FingerprintDiff',
-    'create_fingerprint',
-    'compare_fingerprints',
-    
-    # Differential engine
-    'DifferentialEngine',
-    'ParameterCandidate'
+    "AuthConfig",
+    "DiscoveryRequest",
+    "DiscoveryContext",
+    "ProbeResult",
+    "DetectionResult",
+    "ConfidenceScore",
+    "ApiRegistry",
+    "SchemaSnapshot",
+    "DiffEngine",
+    "DifferentialEngine",
+    "compare_schemas_v2",
+    "semantic_schema_diff",
 ]

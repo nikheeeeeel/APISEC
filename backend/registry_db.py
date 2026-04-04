@@ -53,8 +53,15 @@ def init_db():
             version_number INTEGER NOT NULL,
             schema_json TEXT NOT NULL,
             schema_pdf TEXT,
+            schema_url TEXT,
             timestamp TEXT NOT NULL
         )
+    ''')
+    
+    # Migration: add schema_url column to existing databases
+    cursor.execute('''
+        ALTER TABLE schema_snapshots
+        ADD COLUMN IF NOT EXISTS schema_url TEXT
     ''')
     
     conn.commit()
@@ -193,7 +200,7 @@ class ApiRegistry:
 
 class SchemaSnapshot:
     @staticmethod
-    def create(api_id: int, schema_json: Dict[str, Any], schema_pdf: Optional[str] = None) -> Dict[str, Any]:
+    def create(api_id: int, schema_json: Dict[str, Any], schema_pdf: Optional[str] = None, schema_url: Optional[str] = None) -> Dict[str, Any]:
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
@@ -207,8 +214,8 @@ class SchemaSnapshot:
         schema_json_str = json.dumps(schema_json)
         
         cursor.execute(
-            'INSERT INTO schema_snapshots (api_id, version_number, schema_json, schema_pdf, timestamp) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-            (api_id, version_number, schema_json_str, schema_pdf, timestamp)
+            'INSERT INTO schema_snapshots (api_id, version_number, schema_json, schema_pdf, schema_url, timestamp) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+            (api_id, version_number, schema_json_str, schema_pdf, schema_url, timestamp)
         )
         snapshot_id = cursor.fetchone()['id']
         conn.commit()
@@ -221,13 +228,27 @@ class SchemaSnapshot:
             'version_number': version_number,
             'schema_json': schema_json,
             'schema_pdf': schema_pdf,
+            'schema_url': schema_url,
             'timestamp': timestamp
         }
     
     @staticmethod
-    def schema_exists(api_id: int, schema_json: Dict[str, Any]) -> bool:
+    def schema_exists(api_id: int, schema_json: Dict[str, Any], schema_url: Optional[str] = None) -> bool:
+        """Check if this exact schema content (or schema_url) already exists for this API."""
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # If a URL is provided, check by URL first (faster and avoids large JSON comparisons)
+        if schema_url:
+            cursor.execute(
+                'SELECT COUNT(*) as cnt FROM schema_snapshots WHERE api_id = %s AND schema_url = %s',
+                (api_id, schema_url)
+            )
+            count = cursor.fetchone()['cnt']
+            if count > 0:
+                cursor.close()
+                conn.close()
+                return True
         
         schema_json_str = json.dumps(schema_json)
         cursor.execute(
@@ -241,9 +262,9 @@ class SchemaSnapshot:
         return count > 0
     
     @staticmethod
-    def create_if_different(api_id: int, schema_json: Dict[str, Any], schema_pdf: Optional[str] = None) -> Dict[str, Any]:
-        # Check if schema already exists
-        if SchemaSnapshot.schema_exists(api_id, schema_json):
+    def create_if_different(api_id: int, schema_json: Dict[str, Any], schema_pdf: Optional[str] = None, schema_url: Optional[str] = None) -> Dict[str, Any]:
+        # Check if schema already exists (by URL or content)
+        if SchemaSnapshot.schema_exists(api_id, schema_json, schema_url):
             return {
                 'status': 'unchanged',
                 'message': 'Schema has not changed',
@@ -251,7 +272,7 @@ class SchemaSnapshot:
             }
         
         # Create new schema if different
-        return SchemaSnapshot.create(api_id, schema_json, schema_pdf)
+        return SchemaSnapshot.create(api_id, schema_json, schema_pdf, schema_url)
     
     @staticmethod
     def update_pdf(snapshot_id: int, schema_pdf: str) -> bool:
