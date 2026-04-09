@@ -1,0 +1,443 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "#### title": "#### Contoso \u00c2\u00b7 HR Employee Directory (evolved contract)",
+    "#### version": "#### 2.0.0",
+    "#### description": "#### Evolved OpenAPI for diff demos \u00e2\u20ac\u201d compare to v1 in Version Check."
+  },
+  "paths": {
+    "#### /contoso/hr/v2/employee-profile": {
+      "#### get": {
+        "#### summary": "#### Signed-in employee profile (v2 path segment)",
+        "#### responses": {
+          "#### 200": {
+            "#### description": "#### OK",
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### userId",
+                    "#### userEmail"
+                  ],
+                  "#### properties": {
+                    "#### userId": {
+                      "#### type": "#### integer"
+                    },
+                    "#### userEmail": {
+                      "#### type": "#### string",
+                      "#### format": "#### email"
+                    },
+                    "#### refresh_token": {
+                      "#### type": "#### string"
+                    },
+                    "#### secretHint": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/employees/directory/search": {
+      "get": {
+        "summary": "Search corporate directory",
+        "parameters": [
+          {
+            "name": "q",
+            "#### in": "#### header",
+            "#### required": "#### True",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "hits",
+                    "#### tookMs"
+                  ],
+                  "properties": {
+                    "hits": {
+                      "type": "integer"
+                    },
+                    "#### tookMs": {
+                      "#### type": "#### integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/time-off/requests": {
+      "post": {
+        "summary": "Submit time-off request draft",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title",
+                  "#### memo"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "memo": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/employees/me": {
+      "get": {
+        "summary": "HR record for current employee",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "#### REMOVED_nickname"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "nickname": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/badges/current": {
+      "get": {
+        "summary": "Active recognition badges",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "#### REMOVED_title"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "#### REMOVED_title": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/displays/wallboard": {
+      "get": {
+        "summary": "Lobby wallboard layout preferences",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "panel"
+                  ],
+                  "properties": {
+                    "panel": {
+                      "type": "object",
+                      "required": [
+                        "#### pixelFormat"
+                      ],
+                      "properties": {
+                        "#### pixelFormat": {
+                          "#### type": "#### string"
+                        },
+                        "#### REMOVED_inner": {
+                          "#### type": "#### object",
+                          "#### required": [
+                            "#### pixelFormat"
+                          ],
+                          "#### properties": {
+                            "#### pixelFormat": {
+                              "#### type": "#### string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/procurement/catalog-items": {
+      "get": {
+        "summary": "Internal office-supply catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "cost": {
+                      "#### type": "#### integer"
+                    },
+                    "#### skuCode": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/policies/employee-handbook": {
+      "get": {
+        "summary": "Handbook metadata",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "#### REMOVED_put": {
+        "#### summary": "#### Replace handbook draft (admin)",
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### properties": {
+                    "#### x": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/policies/policy-acknowledgements": {
+      "get": {
+        "summary": "Acknowledgement receipts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "y": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "#### patch": {
+        "#### summary": "#### Patch acknowledgement state",
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### properties": {
+                    "#### patched": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "#### /contoso/hr/integrations/teams-webhooks": {
+      "#### post": {
+        "#### summary": "#### Register Teams channel webhook",
+        "#### requestBody": {
+          "#### required": "#### True",
+          "#### content": {
+            "#### application/json": {
+              "#### schema": {
+                "#### type": "#### object",
+                "#### required": [
+                  "#### url"
+                ],
+                "#### properties": {
+                  "#### url": {
+                    "#### type": "#### string",
+                    "#### format": "#### uri"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### registered"
+                  ],
+                  "#### properties": {
+                    "#### registered": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "#### REMOVED_/contoso/hr/v1/employee-profile": {
+      "#### get": {
+        "#### summary": "#### Signed-in employee profile (v1 path segment)",
+        "#### responses": {
+          "#### 200": {
+            "#### description": "#### OK",
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### userId",
+                    "#### userMail"
+                  ],
+                  "#### properties": {
+                    "#### userId": {
+                      "#### type": "#### integer"
+                    },
+                    "#### userMail": {
+                      "#### type": "#### string",
+                      "#### format": "#### email"
+                    },
+                    "#### retiredFlag": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "#### REMOVED_/contoso/hr/legacy/cafeteria-specials": {
+      "#### get": {
+        "#### summary": "#### Deprecated lunch board feed",
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### alive"
+                  ],
+                  "#### properties": {
+                    "#### alive": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

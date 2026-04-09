@@ -1,0 +1,334 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "#### CHANGED_title": "#### Contoso \u00c2\u00b7 HR Employee Directory (baseline contract)",
+    "#### CHANGED_version": "#### 1.0.0",
+    "#### CHANGED_description": "#### Baseline OpenAPI for diff demos against v2 (same logical resources, evolved shapes)."
+  },
+  "paths": {
+    "#### REMOVED_/contoso/hr/v1/employee-profile": {
+      "#### get": {
+        "#### summary": "#### Signed-in employee profile (v1 path segment)",
+        "#### responses": {
+          "#### 200": {
+            "#### description": "#### OK",
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### userId",
+                    "#### userMail"
+                  ],
+                  "#### properties": {
+                    "#### userId": {
+                      "#### type": "#### integer"
+                    },
+                    "#### userMail": {
+                      "#### type": "#### string",
+                      "#### format": "#### email"
+                    },
+                    "#### retiredFlag": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/employees/directory/search": {
+      "get": {
+        "summary": "Search corporate directory",
+        "parameters": [
+          {
+            "name": "q",
+            "#### CHANGED_in": "#### query",
+            "#### CHANGED_required": "#### False",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "hits"
+                  ],
+                  "properties": {
+                    "hits": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/time-off/requests": {
+      "post": {
+        "summary": "Submit time-off request draft",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "memo": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/employees/me": {
+      "get": {
+        "summary": "HR record for current employee",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "#### nickname"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "nickname": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/badges/current": {
+      "get": {
+        "summary": "Active recognition badges",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "#### title"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "#### REMOVED_title": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/displays/wallboard": {
+      "get": {
+        "summary": "Lobby wallboard layout preferences",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "panel"
+                  ],
+                  "properties": {
+                    "panel": {
+                      "type": "object",
+                      "required": [
+                        "#### inner"
+                      ],
+                      "properties": {
+                        "#### REMOVED_inner": {
+                          "#### type": "#### object",
+                          "#### required": [
+                            "#### pixelFormat"
+                          ],
+                          "#### properties": {
+                            "#### pixelFormat": {
+                              "#### type": "#### string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/procurement/catalog-items": {
+      "get": {
+        "summary": "Internal office-supply catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "cost": {
+                      "#### CHANGED_type": "#### number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/policies/employee-handbook": {
+      "get": {
+        "summary": "Handbook metadata",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "#### REMOVED_put": {
+        "#### summary": "#### Replace handbook draft (admin)",
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### properties": {
+                    "#### x": {
+                      "#### type": "#### string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contoso/hr/policies/policy-acknowledgements": {
+      "get": {
+        "summary": "Acknowledgement receipts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "y": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "#### REMOVED_/contoso/hr/legacy/cafeteria-specials": {
+      "#### get": {
+        "#### summary": "#### Deprecated lunch board feed",
+        "#### responses": {
+          "#### 200": {
+            "#### content": {
+              "#### application/json": {
+                "#### schema": {
+                  "#### type": "#### object",
+                  "#### required": [
+                    "#### alive"
+                  ],
+                  "#### properties": {
+                    "#### alive": {
+                      "#### type": "#### boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
