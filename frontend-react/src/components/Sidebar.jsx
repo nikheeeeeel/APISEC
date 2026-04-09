@@ -5,7 +5,8 @@ import {
   GitCompare, 
   BarChart3,
   Settings,
-  Shield
+  Shield,
+  FileText
 } from 'lucide-react';
 import ConnectionStatus from './ConnectionStatus';
 
@@ -13,6 +14,7 @@ const menuItems = [
   { path: '/schema-finder', label: 'Schema Finder', icon: Search },
   { path: '/schema-validate', label: 'Schema Validate', icon: CheckCircle },
   { path: '/version-check', label: 'Version Check', icon: GitCompare },
+  { path: '/reports', label: 'Reports', icon: FileText },
 ];
 
 const Sidebar = ({ onLogout }) => {

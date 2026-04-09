@@ -163,6 +163,76 @@ const SchemaValidate = () => {
     }
   };
 
+  const handleExportReport = async () => {
+    if (!validationResults) return;
+
+    let content = `API Validation Report - ${new Date().toLocaleString()}\n`;
+    content += `==============================================\n\n`;
+    content += `Target API: ${validationResults.baseUrl}\n`;
+    content += `Overall Status: ${validationResults.status.toUpperCase()} (${validationResults.overall})\n\n`;
+    
+    content += `Stats:\n`;
+    content += `- Total Checks   : ${validationResults.stats.totalChecks}\n`;
+    content += `- Passed         : ${validationResults.stats.passed}\n`;
+    content += `- Warnings       : ${validationResults.stats.warnings}\n`;
+    content += `- Errors         : ${validationResults.stats.errors}\n\n`;
+
+    if (validationResults.issues && validationResults.issues.length > 0) {
+      content += `Issues Found:\n----------------------------------------------\n`;
+      validationResults.issues.forEach((issue, i) => {
+        content += `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.path}\n`;
+        content += `   Message: ${issue.message}\n`;
+        if (issue.detailedAnalysis) {
+          content += `\n   AI Analysis:\n     ${issue.detailedAnalysis.split('\n').join('\n     ')}\n`;
+        }
+        content += `\n`;
+      });
+    } else {
+      content += `No issues found. All probed endpoints matched the spec for the checks performed.\n\n`;
+    }
+
+    if (validationResults.passedEndpoints && validationResults.passedEndpoints.length > 0) {
+      content += `Passed Endpoints:\n----------------------------------------------\n`;
+      validationResults.passedEndpoints.forEach((ep) => {
+        content += `- ${ep.method} ${ep.path}`;
+        if (ep.actual_status != null) content += ` (HTTP ${ep.actual_status})`;
+        if (ep.response_time_ms != null) content += ` [${Math.round(ep.response_time_ms)}ms]`;
+        content += `\n`;
+      });
+    }
+
+    const filename = `api-validation-${new Date().toISOString().slice(0, 10)}.txt`;
+
+    try {
+      await ApiService.saveReport(
+        'validation',
+        filename,
+        content,
+        'txt',
+        selectedApi ? parseInt(selectedApi, 10) : null
+      );
+      
+      const successMessage = document.createElement('div');
+      successMessage.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+      successMessage.textContent = 'Validation report saved to your dashboard!';
+      document.body.appendChild(successMessage);
+      setTimeout(() => document.body.removeChild(successMessage), 3000);
+    } catch (err) {
+      console.error('Failed to save validation report:', err);
+    }
+
+    // Trigger local download
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case 'error':
@@ -395,7 +465,7 @@ const SchemaValidate = () => {
               <div className="mt-6 pt-4 border-t border-gray-700">
                 <div className="flex items-center justify-between text-sm text-gray-400">
                   <span>Validated at: {new Date(validationResults.validatedAt).toLocaleString()}</span>
-                  <button type="button" className="text-accent-blue hover:text-blue-400">
+                  <button type="button" onClick={handleExportReport} className="text-accent-blue hover:text-blue-400">
                     Export Report
                   </button>
                 </div>

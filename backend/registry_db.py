@@ -58,6 +58,19 @@ def init_db():
         )
     ''')
     
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reports (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            api_id INTEGER REFERENCES apis(id) ON DELETE SET NULL,
+            type VARCHAR(50) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            content TEXT NOT NULL,
+            format VARCHAR(20) NOT NULL,
+            created_at TIMESTAMP NOT NULL
+        )
+    ''')
+    
     # Migration: add schema_url column to existing databases
     cursor.execute('''
         ALTER TABLE schema_snapshots
@@ -345,3 +358,51 @@ class SchemaSnapshot:
         result = dict(row)
         result['schema_json'] = json.loads(result['schema_json'])
         return result
+
+class ReportRegistry:
+    @staticmethod
+    def create(user_id: int, api_id: Optional[int], type: str, name: str, content: str, format: str) -> Dict[str, Any]:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        created_at = datetime.now().isoformat()
+        
+        cursor.execute(
+            'INSERT INTO reports (user_id, api_id, type, name, content, format, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
+            (user_id, api_id, type, name, content, format, created_at)
+        )
+        report_id = cursor.fetchone()['id']
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            'id': report_id,
+            'user_id': user_id,
+            'api_id': api_id,
+            'type': type,
+            'name': name,
+            'content': content,
+            'format': format,
+            'created_at': created_at
+        }
+    
+    @staticmethod
+    def get_all(user_id: int) -> List[Dict[str, Any]]:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute('SELECT * FROM reports WHERE user_id = %s ORDER BY id DESC', (user_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [dict(row) for row in rows]
+    
+    @staticmethod
+    def delete(user_id: int, report_id: int) -> bool:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM reports WHERE id = %s AND user_id = %s', (report_id, user_id))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return deleted

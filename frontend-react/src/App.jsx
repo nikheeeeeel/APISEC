@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import SchemaFinder from './pages/SchemaFinder';
 import SchemaValidate from './pages/SchemaValidate';
 import VersionCheck from './pages/VersionCheck';
+import Reports from './pages/Reports';
 import Login from './components/Login';
 import ApiService from './services/api';
 
@@ -38,6 +39,7 @@ function App() {
             <Route path="/schema-finder" element={<SchemaFinder />} />
             <Route path="/schema-validate" element={<SchemaValidate />} />
             <Route path="/version-check" element={<VersionCheck />} />
+            <Route path="/reports" element={<Reports />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

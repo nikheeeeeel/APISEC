@@ -179,6 +179,39 @@ class ApiService {
       body: JSON.stringify({ base_url: baseUrl, endpoint_test: endpointTest })
     });
   }
+
+  // Reports endpoints
+  static async getReports() {
+    return this.request(`${API_BASE_URL}/api/reports`);
+  }
+
+  static async saveReport(type, name, content, format, apiId = null) {
+    const formData = new FormData();
+    formData.append('type', type);
+    formData.append('name', name);
+    formData.append('content', content);
+    formData.append('format', format);
+    if (apiId) {
+      formData.append('api_id', apiId);
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports`, {
+        method: 'POST',
+        headers: { ...this.getAuthHeader() },
+        body: formData
+      });
+      return await this.handleResponse(response);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async deleteReport(reportId) {
+    return this.request(`${API_BASE_URL}/api/reports/${reportId}`, {
+      method: 'DELETE'
+    });
+  }
 }
 
 export default ApiService;

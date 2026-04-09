@@ -19,7 +19,7 @@ from models_runtime import (
     RuntimeFailureAnalysisRequest,
     EndpointTestResult,
 )
-from registry_db import init_db, ApiRegistry, SchemaSnapshot, UserRegistry
+from registry_db import init_db, ApiRegistry, SchemaSnapshot, UserRegistry, ReportRegistry
 from runtime_validator_demo_routes import router as rtv_demo_router
 
 # Authentication dependencies
@@ -394,6 +394,52 @@ async def delete_api(api_id: int, current_user: dict = Depends(get_current_user)
         if success: return {"status": "success", "message": "Deleted"}
         else: return JSONResponse(status_code=500, content={"error": "Failed to delete"})
     except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# === Reports API Endpoints ===
+
+@app.get("/api/reports")
+async def get_reports(current_user: dict = Depends(get_current_user)):
+    try:
+        reports = ReportRegistry.get_all(current_user['id'])
+        return {"status": "success", "reports": reports}
+    except Exception as e:
+        logger.error(f"Failed to get reports: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/reports")
+async def save_report(
+    type: str = Form(...),
+    name: str = Form(...),
+    content: str = Form(...),
+    format: str = Form(...),
+    api_id: Optional[int] = Form(None),
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        report = ReportRegistry.create(
+            user_id=current_user['id'], 
+            api_id=api_id, 
+            type=type, 
+            name=name, 
+            content=content, 
+            format=format
+        )
+        return {"status": "success", "report": report}
+    except Exception as e:
+        logger.error(f"Failed to save report: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.delete("/api/reports/{report_id}")
+async def delete_report(report_id: int, current_user: dict = Depends(get_current_user)):
+    try:
+        success = ReportRegistry.delete(current_user['id'], report_id)
+        if success:
+            return {"status": "success", "message": "Report deleted"}
+        else:
+            return JSONResponse(status_code=404, content={"error": "Report not found or not authorized"})
+    except Exception as e:
+        logger.error(f"Failed to delete report: {str(e)}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":

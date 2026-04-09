@@ -584,7 +584,7 @@ const VersionCheck = () => {
     }
   };
 
-  const handleExportDiff = () => {
+  const handleExportDiff = async () => {
     if (!comparison) return;
     
     // Create text format of the differences
@@ -626,12 +626,33 @@ const VersionCheck = () => {
       content += `\n`;
     });
     
+    const filename = `api-diff-${new Date().toISOString().slice(0,10)}.txt`;
+    
+    // Save to backend Reports Registry
+    try {
+      await ApiService.saveReport(
+        'diff',
+        filename,
+        content,
+        'txt',
+        selectedApi ? selectedApi.id : null
+      );
+      
+      const successMessage = document.createElement('div');
+      successMessage.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+      successMessage.textContent = 'Report saved to your dashboard!';
+      document.body.appendChild(successMessage);
+      setTimeout(() => document.body.removeChild(successMessage), 3000);
+    } catch (err) {
+      console.error('Failed to save report to backend:', err);
+    }
+    
     // Create blob and download link
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `api-diff-${new Date().toISOString().slice(0,10)}.txt`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
