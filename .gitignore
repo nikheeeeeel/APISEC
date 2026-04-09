@@ -40,5 +40,6 @@ Thumbs.db
 
 # Environment (root .env only matched by ".env"; ignore backend secrets explicitly)
 .env
+.env.docker
 .env.local
 backend/.env

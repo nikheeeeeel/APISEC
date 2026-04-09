@@ -56,5 +56,5 @@ databases:
   # PostgreSQL Database
   - name: apisec-db
     databaseName: apisec
-    user: postgres
+    user: apisec_user
     plan: free # Change to 'starter' if more resources are needed
