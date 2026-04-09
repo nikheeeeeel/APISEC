@@ -38,6 +38,7 @@ test_api/node_modules/
 .DS_Store
 Thumbs.db
 
-# Environment
+# Environment (root .env only matched by ".env"; ignore backend secrets explicitly)
 .env
 .env.local
+backend/.env

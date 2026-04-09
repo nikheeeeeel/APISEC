@@ -476,3 +476,81 @@ Keep your response concise, professional, and directly actionable. Use code bloc
         enriched = {**change}
         enriched["detailed_analysis"] = f"Analysis failed due to an error: {str(e)}"
         return enriched
+
+
+def _truncate_json_for_prompt(data: Any, max_chars: int = 4500) -> str:
+    try:
+        s = json.dumps(data, indent=2, default=str)
+    except (TypeError, ValueError):
+        s = str(data)
+    if len(s) <= max_chars:
+        return s
+    return s[: max_chars - 40] + "\n... (truncated for prompt size)"
+
+
+async def analyze_runtime_endpoint_failure(
+    base_url: str,
+    endpoint_test: Dict[str, Any],
+) -> str:
+    """
+    Explain why a single runtime validation probe failed (status vs spec, schema drift, errors).
+    """
+    model = _get_gemini_model()
+    if not model:
+        return (
+            "AI analysis is currently unavailable. Set GEMINI_API_KEY in the server environment "
+            "to enable explanations."
+        )
+
+    spec_status = endpoint_test.get("expected_status")
+    actual_status = endpoint_test.get("actual_status")
+    method = endpoint_test.get("method") or ""
+    path = endpoint_test.get("path") or ""
+    url = endpoint_test.get("url") or ""
+    err = endpoint_test.get("error")
+    status_mismatch = endpoint_test.get("status_mismatch")
+    schema_mismatch = endpoint_test.get("schema_mismatch")
+    response_time_ms = endpoint_test.get("response_time_ms")
+
+    expected_schema = endpoint_test.get("expected_response_schema")
+    actual_body = endpoint_test.get("actual_response")
+
+    probe_summary = {
+        "method": method,
+        "path": path,
+        "request_url": url,
+        "expected_status_from_spec": spec_status,
+        "actual_http_status": actual_status,
+        "status_mismatch": status_mismatch,
+        "schema_mismatch": schema_mismatch,
+        "transport_or_client_error": err,
+        "response_time_ms": response_time_ms,
+        "expected_response_schema_excerpt": _truncate_json_for_prompt(expected_schema, 2500),
+        "actual_response_body_excerpt": _truncate_json_for_prompt(actual_body, 2500),
+    }
+
+    prompt = f"""You are an API reliability engineer. A runtime contract check compared live HTTP behavior to an OpenAPI-style spec for one operation.
+
+**API base URL (context only):** {base_url}
+
+**Probe result (JSON):**
+```json
+{json.dumps(probe_summary, indent=2, default=str)}
+```
+
+Explain in markdown:
+1. **What failed** — status code vs documented default, connection/timeout error, or JSON shape vs declared response schema.
+2. **Likely causes** — spec outdated, wrong environment, auth, validation on server, nullable/required drift, etc. Be specific to the fields above.
+3. **What to do next** — concrete checks (fix spec, fix server, adjust test base URL, auth headers).
+
+Do not invent HTTP statuses or response bodies not indicated above. If the excerpt is truncated, say that full bodies may reveal more. Keep it concise and actionable."""
+
+    try:
+        response = model.generate_content(prompt)
+        if response and response.text:
+            return response.text.strip()
+        logger.error("Gemini returned empty response for runtime failure analysis")
+        return "Failed to generate analysis (empty response from AI)."
+    except Exception as e:
+        logger.error(f"Runtime failure AI analysis failed: {e}")
+        return f"Analysis failed due to an error: {str(e)}"

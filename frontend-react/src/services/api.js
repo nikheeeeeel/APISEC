@@ -172,6 +172,13 @@ class ApiService {
       body: JSON.stringify({ base_url: baseUrl, schema_info: schemaInfo })
     });
   }
+
+  static async analyzeRuntimeFailure(baseUrl, endpointTest) {
+    return this.request(`${API_BASE_URL}/validate-runtime/analyze-failure`, {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, endpoint_test: endpointTest })
+    });
+  }
 }
 
 export default ApiService;

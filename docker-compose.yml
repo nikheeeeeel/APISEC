@@ -4,9 +4,9 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: userpassword
-      POSTGRES_DB: apisec
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-userpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-apisec}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:

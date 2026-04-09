@@ -10,15 +10,17 @@ import sys
 import os
 
 from schema_monitor import crawl_for_schema, crawl_all_schemas, generate_pdf_from_json, compare_schemas, compare_schemas_structured
-from ai_analyzer import analyze_single_change
+from ai_analyzer import analyze_single_change, analyze_runtime_endpoint_failure
 from runtime_validator import create_runtime_validator
 from models import DiscoveryRequest
 from models_runtime import (
-    RuntimeValidationRequest, 
-    RuntimeValidationResponse, 
-    EndpointTestResult
+    RuntimeValidationRequest,
+    RuntimeValidationResponse,
+    RuntimeFailureAnalysisRequest,
+    EndpointTestResult,
 )
 from registry_db import init_db, ApiRegistry, SchemaSnapshot, UserRegistry
+from runtime_validator_demo_routes import router as rtv_demo_router
 
 # Authentication dependencies
 from passlib.context import CryptContext
@@ -51,6 +53,7 @@ except Exception as e:
     logger.error(f"Failed to initialize DB: {e}")
 
 app = FastAPI(title="API Schema Discovery & Diffing")
+app.include_router(rtv_demo_router)
 
 # CORS settings
 app.add_middleware(
@@ -177,6 +180,22 @@ async def validate_runtime_endpoint(request: RuntimeValidationRequest, current_u
     except Exception as e:
         logger.error(f"Runtime validation failed: {str(e)}")
         return JSONResponse(status_code=500, content={"error": f"Runtime validation failed: {str(e)}"})
+
+
+@app.post("/validate-runtime/analyze-failure")
+async def validate_runtime_analyze_failure(
+    request: RuntimeFailureAnalysisRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """AI explanation for a single failed runtime endpoint test (same stack as version-monitor Analyze)."""
+    try:
+        payload = request.endpoint_test.model_dump(mode="json")
+        analysis = await analyze_runtime_endpoint_failure(request.base_url, payload)
+        return {"status": "success", "analysis": analysis}
+    except Exception as e:
+        logger.error(f"Runtime failure analysis failed: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.post("/discover-schema")
 async def discover_schema_endpoint(request: DiscoveryRequest, current_user: dict = Depends(get_current_user)):

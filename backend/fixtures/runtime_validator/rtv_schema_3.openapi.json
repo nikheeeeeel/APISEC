@@ -1,0 +1,243 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Adventure Works · Warehouse Stock API",
+    "version": "1.0.0",
+    "description": "Distribution center inventory (demo: most endpoints pass; replication probes intentionally drift)."
+  },
+  "paths": {
+    "/adventureworks/warehouse/v1/status": {
+      "get": {
+        "summary": "Warehouse control plane status",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["up"],
+                  "properties": {
+                    "up": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/stock-lots": {
+      "get": {
+        "summary": "List stock lots by aisle",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["rows"],
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["sku"],
+                        "properties": {
+                          "sku": { "type": "string" },
+                          "qty": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/stock-lots/{sku}": {
+      "get": {
+        "summary": "Stock on hand for one SKU",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["sku", "qty"],
+                  "properties": {
+                    "sku": { "type": "string" },
+                    "qty": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/bin-notes": {
+      "post": {
+        "summary": "Attach note to picking bin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["body"],
+                "properties": {
+                  "body": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "body"],
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "body": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/bin-notes/{noteId}": {
+      "put": {
+        "summary": "Replace bin note text",
+        "parameters": [
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["body"],
+                "properties": {
+                  "body": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "body"],
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "body": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/site-config": {
+      "get": {
+        "summary": "Read-only DC configuration flags",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["version", "flags"],
+                  "properties": {
+                    "version": { "type": "string" },
+                    "flags": {
+                      "type": "object",
+                      "required": ["readOnly"],
+                      "properties": {
+                        "readOnly": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/replication/sync-status": {
+      "get": {
+        "summary": "Cross-site sync heartbeat (demo: returns non-200)",
+        "responses": {
+          "200": {
+            "description": "Spec documents success only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok"],
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adventureworks/warehouse/v1/replication/lag-summary": {
+      "get": {
+        "summary": "Replication lag KPIs (demo: JSON types drift from spec)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["score", "label"],
+                  "properties": {
+                    "score": { "type": "integer" },
+                    "label": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

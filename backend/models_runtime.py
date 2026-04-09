@@ -23,6 +23,13 @@ class EndpointTestResult(BaseModel):
     validation_passed: bool = True
 
 
+class RuntimeFailureAnalysisRequest(BaseModel):
+    """Body for AI explanation of a single failed runtime endpoint test."""
+
+    base_url: str
+    endpoint_test: EndpointTestResult
+
+
 class RuntimeValidationResponse(BaseModel):
     base_url: str
     total_endpoints: int
